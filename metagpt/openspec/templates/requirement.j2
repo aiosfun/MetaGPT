@@ -1,0 +1,41 @@
+# {{ requirement_name }}
+
+## ADDED Requirements
+
+{% for req in requirements %}
+### Requirement: {{ req.title }}
+{{ req.description }}
+
+{% for scenario in req.scenarios %}
+#### Scenario: {{ scenario.name }}
+{% if scenario.given %}**Given** {{ scenario.given }}{% endif %}
+{% if scenario.when %}**When** {{ scenario.when }}{% endif %}
+{% if scenario.then %}**Then** {{ scenario.then }}{% endif %}
+{% endfor %}
+{% endfor %}
+
+{% if modified_requirements %}
+## MODIFIED Requirements
+
+{% for req in modified_requirements %}
+### Requirement: {{ req.title }}
+{{ req.description }}
+
+{% for scenario in req.scenarios %}
+#### Scenario: {{ scenario.name }}
+{% if scenario.given %}**Given** {{ scenario.given }}{% endif %}
+{% if scenario.when %}**When** {{ scenario.when }}{% endif %}
+{% if scenario.then %}**Then** {{ scenario.then }}{% endif %}
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+{% if removed_requirements %}
+## REMOVED Requirements
+
+{% for req in removed_requirements %}
+### Requirement: {{ req.title }}
+**Reason**: {{ req.reason }}
+**Migration**: {{ req.migration }}
+{% endfor %}
+{% endif %}

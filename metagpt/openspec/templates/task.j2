@@ -1,0 +1,102 @@
+# {{ task_spec_name }}
+
+## Implementation Progress
+- **Total Tasks**: {{ total_tasks }}
+- **Completed**: {{ completed_tasks }}
+- **Overall Progress**: {{ overall_progress }}%
+
+{% if implementation_tasks %}
+## Implementation Tasks
+
+{% for req_id, req_tasks in implementation_tasks_by_requirement.items() %}
+### For Requirement: {{ req_id }}
+
+{% for task in req_tasks %}
+### Task: {{ task.title }}
+**Task ID**: {{ task.task_id }}
+**Implementation Type**: {{ task.implementation_type }}
+**Status**: {{ task.status }}
+**Priority**: {{ task.priority }}
+
+{% if task.file_path %}
+**File**: `{{ task.file_path }}`
+{% endif %}
+
+**Description**:
+{{ task.description }}
+
+**Fulfills Requirement**: {{ task.requirement_id }} - {{ task.requirement_title }}
+{% if task.scenario_id %}
+**Addresses Scenario**: {{ task.scenario_id }}
+{% endif %}
+
+{% if task.acceptance_criteria %}
+**Acceptance Criteria**:
+{% for criteria in task.acceptance_criteria %}
+- {{ criteria }}
+{% endfor %}
+{% endif %}
+
+{% if task.dependencies %}
+**Dependencies**:
+{% for dep in task.dependencies %}
+- {{ dep }}
+{% endfor %}
+{% endif %}
+
+{% if task.estimated_effort %}
+**Estimated Effort**: {{ task.estimated_effort }}
+{% endif %}
+
+{% if task.language or task.framework %}
+**Technology**: {% if task.language %}{{ task.language }}{% endif %}{% if task.framework %}{{ task.framework }}{% endif %}
+{% endif %}
+
+{% if task.implementation_notes %}
+**Implementation Notes**:
+{{ task.implementation_notes }}
+{% endif %}
+
+{% if task.test_requirements %}
+**Testing Requirements**:
+{% for test_req in task.test_requirements %}
+- {{ test_req }}
+{% endfor %}
+{% endif %}
+
+{% endfor %}
+{% endfor %}
+{% endif %}
+
+{% if requirement_mappings %}
+## Requirement to Task Mappings
+
+{% for mapping in requirement_mappings %}
+### {{ mapping.requirement_id }}
+**Tasks**: {{ mapping.tasks | join(', ') }}
+**Completion**: {{ mapping.completion_percentage }}%
+{% endfor %}
+{% endif %}
+
+{% if package_dependencies or api_specifications or shared_knowledge %}
+## Development Specifications
+
+{% if package_dependencies %}
+### Package Dependencies
+{% for dep in package_dependencies %}
+- {{ dep }}
+{% endfor %}
+{% endif %}
+
+{% if api_specifications %}
+### API Specifications
+```yaml
+{{ api_specifications }}
+```
+{% endif %}
+
+{% if shared_knowledge %}
+### Shared Knowledge
+{{ shared_knowledge }}
+{% endif %}
+{% endif %}

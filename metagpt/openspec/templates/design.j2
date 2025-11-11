@@ -1,0 +1,160 @@
+# {{ design_name }}
+
+{{ design_overview }}
+
+{% if architectural_patterns or design_principles %}
+## Architecture Overview
+
+{% if architectural_patterns %}
+### Architectural Patterns
+{% for pattern in architectural_patterns %}
+- {{ pattern }}
+{% endfor %}
+{% endif %}
+
+{% if design_principles %}
+### Design Principles
+{% for principle in design_principles %}
+- {{ principle }}
+{% endfor %}
+{% endif %}
+
+{% endif %}
+
+{% if requirements_mapping %}
+## Requirements Mapping
+
+{% for mapping in requirements_mapping %}
+### {{ mapping.requirement_id }}: {{ mapping.requirement_title }}
+**Design Elements**: {{ mapping.design_elements | join(', ') }}
+{% if mapping.implementation_notes %}
+**Implementation Notes**: {{ mapping.implementation_notes }}
+{% endif %}
+{% if mapping.verification_method %}
+**Verification Method**: {{ mapping.verification_method }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if design_components %}
+## Design Components
+
+{% for component in design_components %}
+### {{ component.name }}
+**Purpose**: {{ component.purpose }}
+**Type**: {{ component.element_type }}
+
+{% if component.description %}
+**Description**:
+{{ component.description }}
+{% endif %}
+
+{% if component.interfaces %}
+**Interfaces**:
+{% for interface in component.interfaces %}
+- {{ interface.name }}: {{ interface.description }}
+{% if interface.input_type %}
+  - Input: {{ interface.input_type }}
+{% endif %}
+{% if interface.output_type %}
+  - Output: {{ interface.output_type }}
+{% endif %}
+{% if interface.protocol %}
+  - Protocol: {{ interface.protocol }}
+{% endif %}
+{% if interface.endpoint %}
+  - Endpoint: {{ interface.endpoint }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if component.dependencies %}
+**Dependencies**: {{ component.dependencies | join(', ') if component.dependencies else 'None' }}
+{% endif %}
+
+{% if component.sub_components %}
+**Sub-components**: {{ component.sub_components | join(', ') if component.sub_components else 'None' }}
+{% endif %}
+
+{% if component.technology %}
+**Technology**: {{ component.technology }}
+{% endif %}
+
+{% if component.behavior %}
+**Behavior**:
+{{ component.behavior }}
+{% endif %}
+
+{% if component.data_flow %}
+**Data Flow**:
+{{ component.data_flow }}
+{% endif %}
+
+{% if component.performance_requirements %}
+**Performance Requirements**:
+{{ component.performance_requirements }}
+{% endif %}
+
+{% if component.security_considerations %}
+**Security Considerations**:
+{{ component.security_considerations }}
+{% endif %}
+
+{% if component.scalability_notes %}
+**Scalability**:
+{{ component.scalability_notes }}
+{% endif %}
+
+{% if component.implementation_notes %}
+**Implementation Notes**:
+{{ component.implementation_notes }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if cross_references %}
+## Cross-References
+
+{% for ref in cross_references %}
+- **{{ ref.reference_type.title() }}**: {{ ref.target }}
+{% if ref.description %} - {{ ref.description }}{% endif %}
+{% endfor %}
+{% endif %}
+
+{% if technology_stack %}
+## Technology Stack
+
+{{ technology_stack }}
+{% endif %}
+
+{% if data_model %}
+## Data Model
+
+{{ data_model }}
+{% endif %}
+
+{% if api_specifications %}
+## API Specifications
+
+```yaml
+{{ api_specifications }}
+```
+{% endif %}
+
+{% if quality_attributes %}
+## Quality Attributes
+
+{% for attr, req in quality_attributes.items() %}
+### {{ attr.title() }}
+{{ req }}
+{% endfor %}
+{% endif %}
+
+{% if constraints %}
+## Constraints
+
+{% for constraint in constraints %}
+- {{ constraint }}
+{% endfor %}
+{% endif %}
