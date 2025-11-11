@@ -86,9 +86,11 @@ class ProductManager(RoleZero):
         self.use_openspec = use_openspec
         logger.info(f"ProductManager OpenSpec mode set to: {use_openspec}")
 
+        # Determine which WritePRD action to use
+        write_prd_action = WritePRDWithOpenSpec if self.use_openspec else WritePRD
+
         # Update actions if using fixed SOP
         if self.use_fixed_sop:
-            write_prd_action = WritePRDWithOpenSpec if self.use_openspec else WritePRD
             self.set_actions([PrepareDocuments(send_to=any_to_str(self)), write_prd_action])
 
         # Update todo action

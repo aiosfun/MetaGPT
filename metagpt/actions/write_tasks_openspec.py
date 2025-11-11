@@ -492,7 +492,8 @@ Guidelines for OpenSpec-compliant task generation:
             if output_pathname:
                 await self._save_openspec_tasks(openspec_content, output_pathname, task_spec)
 
-            return openspec_content
+            # Return the OpenSpec task specification object for further processing
+            return task_spec
 
         except Exception as e:
             logger.error(f"Error generating OpenSpec tasks: {e}")

@@ -185,6 +185,22 @@ class OpenSpecTemplateEngine:
         template = self.env.get_template("design.j2")
         return template.render(**kwargs)
 
+    async def render_requirement_template(self, requirement_data: Dict[str, Any]) -> str:
+        """Render requirement template with provided data.
+
+        Args:
+            requirement_data: Dictionary containing requirement data
+
+        Returns:
+            Rendered requirement specification
+        """
+        return self.render_requirement(
+            requirement_name=requirement_data.get("title", "Unnamed Requirement"),
+            requirements=[requirement_data],
+            modified_requirements=[],
+            removed_requirements=[]
+        )
+
     def render_custom_template(self, template_name: str, **kwargs) -> str:
         """Render a custom template.
 

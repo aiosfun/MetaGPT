@@ -647,7 +647,8 @@ Guidelines for OpenSpec-compliant design generation:
             if output_pathname:
                 await self._save_openspec_design(openspec_content, output_pathname, openspec_design)
 
-            return openspec_content
+            # Return the OpenSpec design object for further processing
+            return openspec_design
 
         except Exception as e:
             logger.error(f"Error generating OpenSpec design: {e}")

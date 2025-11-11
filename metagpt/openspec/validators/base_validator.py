@@ -82,12 +82,13 @@ class ValidationResult:
             suggestion=suggestion
         ))
 
-    def add_info(self, message: str, location: Optional[str] = None):
+    def add_info(self, message: str, location: Optional[str] = None, suggestion: Optional[str] = None):
         """Add an info issue."""
         self.issues.append(ValidationIssue(
             level=ValidationLevel.INFO,
             message=message,
-            location=location
+            location=location,
+            suggestion=suggestion
         ))
 
     def has_errors(self) -> bool:
@@ -243,6 +244,17 @@ class OpenSpecValidator(BaseValidator):
                 suggestion="Provide either OpenSpecRequirement or OpenSpecDesign"
             )
             return result
+
+    def validate_requirement(self, requirement: OpenSpecRequirement) -> ValidationResult:
+        """Validate an OpenSpec requirement specification.
+
+        Args:
+            requirement: The OpenSpec requirement to validate
+
+        Returns:
+            ValidationResult with validation issues
+        """
+        return self.validate(requirement)
 
     def validate_markdown(self, markdown_content: str, spec_type: str = "requirement") -> ValidationResult:
         """Validate OpenSpec markdown format.

@@ -235,9 +235,18 @@ Guidelines:
         Returns:
             Parsed requirements data
         """
+        def add_ids_to_requirements(requirements):
+            """Add unique IDs to requirements if missing."""
+            for i, req in enumerate(requirements):
+                if 'id' not in req:
+                    req['id'] = f"REQ-{i+1:03d}"
+            return requirements
+
         try:
             # Try to parse as JSON
             data = json.loads(llm_output)
+            if 'requirements' in data:
+                data['requirements'] = add_ids_to_requirements(data['requirements'])
             return data
         except json.JSONDecodeError:
             logger.warning("LLM output is not valid JSON, attempting to extract with regex")
@@ -247,6 +256,8 @@ Guidelines:
             if json_match:
                 try:
                     data = json.loads(json_match.group())
+                    if 'requirements' in data:
+                        data['requirements'] = add_ids_to_requirements(data['requirements'])
                     return data
                 except json.JSONDecodeError:
                     pass
@@ -256,6 +267,7 @@ Guidelines:
             return {
                 "requirements": [
                     {
+                        "id": "REQ-001",
                         "title": "Main Requirement",
                         "description": llm_output[:200] + "..." if len(llm_output) > 200 else llm_output,
                         "scenarios": [
@@ -413,7 +425,8 @@ Guidelines:
             if output_pathname:
                 await self._save_openspec_content(openspec_content, output_pathname, openspec_requirement)
 
-            return openspec_content
+            # Return the OpenSpec requirement object for further processing
+            return openspec_requirement
 
         except Exception as e:
             logger.error(f"Error generating OpenSpec requirement: {e}")

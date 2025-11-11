@@ -96,9 +96,11 @@ class Architect(RoleZero):
         self.use_openspec = use_openspec
         logger.info(f"Architect OpenSpec mode set to: {use_openspec}")
 
+        # Determine which WriteDesign action to use
+        write_design_action = WriteDesignWithOpenSpec if self.use_openspec else WriteDesign
+
         # Update actions if using fixed SOP
         if self.use_fixed_sop:
-            write_design_action = WriteDesignWithOpenSpec if self.use_openspec else WriteDesign
             self.set_actions([write_design_action])
 
         # Update todo action
