@@ -155,8 +155,16 @@ Follow these guidelines:
    - @param name description
    - @return description
 3. Add struct/typedef comments
-4. Add inline comments for complex logic
+4. Add inline comments for complex logic, algorithms, and non-obvious code:
+   - Explain pointer arithmetic and memory operations
+   - Document loop logic and buffer operations
+   - Clarify bit manipulations and bitwise operations
+   - Explain error handling and return codes
+   - Add comments for algorithm implementations
+   - Clarify any non-obvious pointer usage or casting
 5. Keep existing code logic unchanged
+
+IMPORTANT: Add inline comments inside function bodies for complex statements, pointer operations, and algorithm steps.
 
 Code to annotate:
 ```c
@@ -174,8 +182,16 @@ Follow these guidelines:
    - @brief brief description
    - @param name description
    - @return description
-4. Add inline comments for complex logic
+4. Add inline comments for complex logic, algorithms, and non-obvious code:
+   - Explain template usage and type deductions
+   - Document RAII patterns and resource management
+   - Clarify operator overloading logic
+   - Explain STL algorithm usage and iterators
+   - Add comments for move semantics and perfect forwarding
+   - Clarify any non-obvious memory management
 5. Keep existing code logic unchanged
+
+IMPORTANT: Add inline comments inside function/method bodies for complex statements, template operations, and algorithm steps.
 
 Code to annotate:
 ```cpp
@@ -192,8 +208,16 @@ Follow these guidelines:
    - Function purpose
    - Parameters (arguments)
    - Return values/exit codes
-3. Add inline comments for complex commands
+3. Add inline comments for complex commands, pipelines, and logic:
+   - Explain complex pipe chains and command combinations
+   - Document conditional logic and case statements
+   - Clarify variable expansions and substitutions
+   - Explain regex patterns and sed/awk operations
+   - Add comments for trap handlers and signal handling
+   - Clarify any non-obvious shell-specific constructs
 4. Keep existing code logic unchanged
+
+IMPORTANT: Add inline comments for complex command pipelines, conditionals, loops, and regex operations.
 
 Code to annotate:
 ```bash
@@ -211,8 +235,16 @@ Follow these guidelines:
    - Brief description starting with function name
    - Parameter descriptions if needed
    - Return value descriptions if needed
-4. Add inline comments for complex logic
+4. Add inline comments for complex logic, algorithms, and non-obvious code:
+   - Explain goroutine usage and channel operations
+   - Document defer statements and panic/recover logic
+   - Clarify interface implementations and type assertions
+   - Explain complex error handling patterns
+   - Add comments for algorithm implementations
+   - Clarify any non-obvious slice/map operations
 5. Keep existing code logic unchanged
+
+IMPORTANT: Add inline comments inside function bodies for complex statements, concurrency patterns, and algorithm steps.
 
 Code to annotate:
 ```go
@@ -231,8 +263,16 @@ Follow these guidelines:
    - # Arguments
    - # Returns
    - # Examples (if complex)
-4. Add inline comments for complex logic
+4. Add inline comments for complex logic, algorithms, and non-obvious code:
+   - Explain ownership and borrowing patterns
+   - Document lifetime annotations and their purposes
+   - Clarify match expressions with complex patterns
+   - Explain trait implementations and generic constraints
+   - Add comments for unsafe blocks and their safety invariants
+   - Clarify any non-obvious error handling with Result/Option
 5. Keep existing code logic unchanged
+
+IMPORTANT: Add inline comments inside function bodies for complex statements, ownership transfers, pattern matching, and algorithm steps.
 
 Code to annotate:
 ```rust
