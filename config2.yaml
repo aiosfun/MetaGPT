@@ -1,0 +1,19 @@
+# Full Example: https://github.com/geekan/MetaGPT/blob/main/config/config2.example.yaml
+# Reflected Code: https://github.com/geekan/MetaGPT/blob/main/metagpt/config2.py
+# Config Docs: https://docs.deepwisdom.ai/main/en/guide/get_started/configuration.html
+llm:
+  api_type: "openai"  # or azure / ollama / groq etc.
+  model: "glm-4.6"  # or gpt-3.5-turbo
+  base_url: "https://open.bigmodel.cn/api/coding/paas/v4"  # or forward url / other llm url
+  api_key: "c61a16c2cca6444886d67a63ff5c0237.JWap7Auxccob68Cn"
+
+# OpenSpec Integration Configuration
+openspec:
+  enabled: true  # Enable/disable OpenSpec integration
+  cli_path: "openspec"  # Path to OpenSpec CLI executable
+  validation_mode: "strict"  # Validation mode: strict, lenient
+  output_format: "openspec"  # Output format: openspec, legacy
+  change_tracking: true  # Enable change proposal tracking
+  auto_validate: true  # Automatically validate generated content
+  review_mode: "interactive"  # Review mode: interactive, auto, skip
+  workspace_path: "~/.metagpt/openspec"  # OpenSpec workspace directory
