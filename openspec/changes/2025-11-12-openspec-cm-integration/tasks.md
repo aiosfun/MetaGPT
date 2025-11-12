@@ -3,72 +3,72 @@
 ## Phase 1: Core OpenSpec Foundation
 
 ### 1.1 Create Core OpenSpec Utility Module
-- [ ] Create `metagpt/utils/openspec.py` - Core OpenSpec utilities and base classes
-- [ ] Implement `OpenSpecValidator` - Validation and formatting functions
-- [ ] Add `OpenSpecTemplateEngine` - Template rendering and management
-- [ ] Create `OpenSpecGenerator` - Spec creation and management utilities
-- [ ] Add `OpenSpecIntegrator` - Role integration utilities
+- [x] Create `metagpt/utils/openspec.py` - Core OpenSpec utilities and base classes
+- [x] Implement `OpenSpecValidator` - Validation and formatting functions
+- [x] Add `OpenSpecTemplateEngine` - Template rendering and management
+- [x] Create `OpenSpecGenerator` - Spec creation and management utilities
+- [x] Add `OpenSpecIntegrator` - Role integration utilities
 
 ### 1.2 Implement OpenSpec CLI Integration
-- [ ] Create OpenSpec CLI wrapper functions
-- [ ] Add subprocess-based CLI execution with error handling
-- [ ] Implement result parsing and integration with MetaGPT data structures
-- [ ] Add fallback mechanisms when CLI is unavailable
+- [x] Create OpenSpec CLI wrapper functions
+- [x] Add subprocess-based CLI execution with error handling
+- [x] Implement result parsing and integration with MetaGPT data structures
+- [x] Add fallback mechanisms when CLI is unavailable
 - [ ] Create CLI integration tests with various scenarios
 
 ### 1.3 Add OpenSpec File Structure Management
-- [ ] Implement OpenSpec workspace management utilities
-- [ ] Create OpenSpec file structure creation and validation
-- [ ] Add OpenSpec change proposal management functions
-- [ ] Implement OpenSpec archival and retrieval utilities
-- [ ] Create file structure integration tests
+- [x] Implement OpenSpec workspace management utilities
+- [x] Create OpenSpec file structure creation and validation
+- [x] Add OpenSpec change proposal management functions
+- [x] Implement OpenSpec archival and retrieval utilities
+- [x] Create file structure integration tests
 
 ### 1.4 Create Configuration Models and Schema
-- [ ] Create `metagpt/configs/openspec_config.py` with OpenSpecConfig Pydantic model
-- [ ] Define OpenSpecConfig fields: enabled, cli_path, validation_mode, output_format, change_tracking, auto_validate, review_mode, workspace_path
-- [ ] Create Pydantic models for ValidationConfig, TemplateConfig, WorkflowConfig, CLIToolConfig
-- [ ] Define JSON schema for configuration validation
-- [ ] Implement configuration model serialization and deserialization
+- [x] Create `metagpt/configs/openspec_config.py` with OpenSpecConfig Pydantic model
+- [x] Define OpenSpecConfig fields: enabled, cli_path, validation_mode, output_format, change_tracking, auto_validate, review_mode, workspace_path
+- [x] Create Pydantic models for ValidationConfig, TemplateConfig, WorkflowConfig, CLIToolConfig
+- [x] Define JSON schema for configuration validation
+- [x] Implement configuration model serialization and deserialization
 - [ ] Add configuration model unit tests with 95% coverage
 - [ ] Validate schema compliance with OpenAPI standards
 
 ### 1.5 Integrate OpenSpec Configuration with MetaGPT config2.py
-- [ ] Add OpenSpecConfig import to `metagpt/config2.py`
-- [ ] Add openspec field to Config class with default factory
+- [x] Add OpenSpecConfig import to `metagpt/config2.py`
+- [x] Add openspec field to Config class with default factory
 - [ ] Update configuration loading to support openspec section in config2.yaml
 - [ ] Add environment variable support (METAGPT_OPENSPEC_*) for OpenSpec settings
-- [ ] Test configuration integration with existing MetaGPT config system
+- [x] Test configuration integration with existing MetaGPT config system
 - [ ] Add configuration integration tests with various config sources
 
 ## Phase 2: OpenSpec Core Workflow Integration
 
 ### 2.1 Implement OpenSpec Requirement Generation
-- [ ] Extend ProductManager to generate OpenSpec-compliant requirements
-- [ ] Add OpenSpec scenario generation capabilities
-- [ ] Implement requirement categorization following OpenSpec conventions
-- [ ] Add OpenSpec validation step to requirement generation workflow
-- [ ] Create OpenSpec requirement templates for common software features
+- [x] Extend ProductManager to generate OpenSpec-compliant requirements
+- [x] Add OpenSpec scenario generation capabilities
+- [x] Implement requirement categorization following OpenSpec conventions
+- [x] Add OpenSpec validation step to requirement generation workflow
+- [x] Create OpenSpec requirement templates for common software features
 
 ### 2.2 Create OpenSpec Design Document Integration
-- [ ] Extend Architect role to create OpenSpec design documents
-- [ ] Add technical decision documentation following OpenSpec patterns
+- [x] Extend Architect role to create OpenSpec design documents
+- [x] Add technical decision documentation following OpenSpec patterns
 - [ ] Implement architecture diagram generation with OpenSpec integration
-- [ ] Add design rationale and trade-off analysis capabilities
-- [ ] Create OpenSpec design templates for common architectural patterns
+- [x] Add design rationale and trade-off analysis capabilities
+- [x] Create OpenSpec design templates for common architectural patterns
 
 ### 2.3 Implement OpenSpec Change Proposal Management
-- [ ] Extend ProjectManager to handle OpenSpec change proposals
-- [ ] Add OpenSpec change tracking and status management
+- [x] Extend ProjectManager to handle OpenSpec change proposals
+- [x] Add OpenSpec change tracking and status management
 - [ ] Implement OpenSpec approval workflow simulation
 - [ ] Add change impact analysis capabilities
-- [ ] Create OpenSpec task breakdown and assignment features
+- [x] Create OpenSpec task breakdown and assignment features
 
 ### 2.4 Create OpenSpec Actions
-- [ ] Create `OpenSpecValidationAction` for spec validation
-- [ ] Create `OpenSpecGenerationAction` for spec creation
-- [ ] Create `OpenSpecArchiveAction` for change management
-- [ ] Create `OpenSpecListingAction` for spec discovery
-- [ ] Add OpenSpec integration tests for all actions
+- [x] Create `OpenSpecValidationAction` for spec validation
+- [x] Create `OpenSpecGenerationAction` for spec creation
+- [x] Create `OpenSpecArchiveAction` for change management
+- [x] Create `OpenSpecListingAction` for spec discovery
+- [x] Add OpenSpec integration tests for all actions
 
 ## Phase 3: Configuration Management System
 

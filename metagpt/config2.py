@@ -17,6 +17,7 @@ from metagpt.configs.exp_pool_config import ExperiencePoolConfig
 from metagpt.configs.llm_config import LLMConfig, LLMType
 from metagpt.configs.mermaid_config import MermaidConfig
 from metagpt.configs.omniparse_config import OmniParseConfig
+from metagpt.configs.openspec_config import OpenSpecConfig
 from metagpt.configs.redis_config import RedisConfig
 from metagpt.configs.role_custom_config import RoleCustomConfig
 from metagpt.configs.role_zero_config import RoleZeroConfig
@@ -97,6 +98,9 @@ class Config(CLIParams, YamlModel):
 
     # RoleZero's configuration
     role_zero: RoleZeroConfig = Field(default_factory=RoleZeroConfig)
+
+    # OpenSpec Integration Configuration
+    openspec: OpenSpecConfig = Field(default_factory=OpenSpecConfig)
 
     @classmethod
     def from_home(cls, path):

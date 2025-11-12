@@ -33,14 +33,12 @@ from metagpt.utils.mermaid import mermaid_to_file
 from metagpt.utils.project_repo import ProjectRepo
 from metagpt.utils.report import DocsReporter, GalleryReporter
 
-from metagpt.openspec import (
+from metagpt.utils.openspec import (
     OpenSpecTemplateEngine,
     OpenSpecRequirement,
     OpenSpecValidator,
-    Requirement,
-    Scenario,
+    OpenSpecGenerator,
 )
-from metagpt.openspec.models.requirement import RequirementOperation
 
 
 class WritePRDWithOpenSpec(WritePRD):
@@ -81,20 +79,45 @@ class WritePRDWithOpenSpec(WritePRD):
         requirements_data = await self._extract_requirements_with_llm(user_requirement, context)
 
         # Create OpenSpec requirement structure
+        req_title = self._generate_requirement_name(user_requirement)
+        req_description = self._generate_requirement_description(user_requirement, requirements_data)
+        requirements_list = requirements_data.get("requirements", [])
+
+        # Convert requirements to OpenSpec format
+        scenarios = []
+        acceptance_criteria = []
+
+        for req in requirements_list:
+            # Add scenarios
+            for scenario in req.get("scenarios", []):
+                scenarios.append({
+                    "name": scenario.get("name", ""),
+                    "given": scenario.get("given", ""),
+                    "when": scenario.get("when", ""),
+                    "then": scenario.get("then", "")
+                })
+
+            # Add acceptance criteria
+            acceptance_criteria.extend(req.get("acceptance_criteria", []))
+
         openspec_req = OpenSpecRequirement(
-            name=self._generate_requirement_name(user_requirement),
-            version="1.0",
-            description=self._generate_requirement_description(user_requirement, requirements_data),
-            added_requirements=requirements_data.get("requirements", []),
+            title=req_title,
+            description=req_description,
+            scenarios=scenarios,
+            acceptance_criteria=acceptance_criteria,
+            priority=requirements_list[0].get("priority", "medium") if requirements_list else "medium",
+            metadata={"original_requirement": user_requirement, "requirements_count": len(requirements_list)}
         )
 
         # Validate the generated specification
-        validation_result = self.openspec_validator.validate(openspec_req)
+        validation_result = self.openspec_validator.validate_requirement(openspec_req)
         if not validation_result.is_valid:
-            logger.warning(f"OpenSpec validation issues found: {validation_result.get_summary()}")
+            logger.warning(f"OpenSpec validation issues found: {len(validation_result.errors)} errors, {len(validation_result.warnings)} warnings")
             # Log detailed issues for debugging
-            for issue in validation_result.issues:
-                logger.debug(f"  {issue}")
+            for error in validation_result.errors:
+                logger.debug(f"  Error: {error}")
+            for warning in validation_result.warnings:
+                logger.debug(f"  Warning: {warning}")
 
         return openspec_req
 
@@ -419,7 +442,7 @@ Guidelines:
             )
 
             # Convert to markdown
-            openspec_content = openspec_requirement.to_markdown()
+            openspec_content = self.openspec_template_engine.render_requirement(openspec_requirement)
 
             # Save to file if path specified
             if output_pathname:
@@ -492,7 +515,7 @@ Guidelines:
 
             # Also save as JSON for structured access
             json_path = output_path.with_suffix('.json')
-            json_content = openspec_requirement.json(indent=2)
+            json_content = openspec_requirement.model_dump_json(indent=2)
             await awrite(str(json_path), json_content)
 
             logger.info(f"OpenSpec specification saved to: {output_pathname}")
@@ -534,19 +557,21 @@ Guidelines:
         )
 
         # Convert to markdown
-        openspec_content = openspec_requirement.to_markdown()
+        openspec_content = self.openspec_template_engine.render_requirement(openspec_requirement)
 
         # Save if path specified
         if output_pathname:
             await self._save_openspec_content(openspec_content, output_pathname, openspec_requirement)
 
         # Create AIMessage result
+        validation_result = self.openspec_validator.validate_requirement(openspec_requirement)
         instruct_content = AIMessage.create_instruct_value(
             kvs={
                 "user_requirement": user_requirement,
-                "requirement_name": openspec_requirement.name,
-                "requirement_count": len(openspec_requirement.get_all_requirements()),
-                "validation_summary": self.openspec_validator.validate(openspec_requirement).get_summary(),
+                "requirement_name": openspec_requirement.title,
+                "requirement_count": len(openspec_requirement.scenarios),
+                "validation_errors": len(validation_result.errors),
+                "validation_warnings": len(validation_result.warnings),
             },
             class_name="WritePRDWithOpenSpecOutput",
         )

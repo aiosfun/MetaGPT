@@ -39,16 +39,10 @@ from metagpt.utils.common import (
 )
 from metagpt.utils.project_repo import ProjectRepo
 
-from metagpt.openspec import (
+from metagpt.utils.openspec import (
     OpenSpecTemplateEngine,
     OpenSpecValidator,
-)
-from metagpt.openspec.models.task import (
-    OpenSpecTaskSpecification,
-    ImplementationTask,
-    TaskMapping,
-    TaskStatus,
-    TaskPriority,
+    OpenSpecTask,
 )
 
 

@@ -37,17 +37,12 @@ from metagpt.utils.mermaid import mermaid_to_file
 from metagpt.utils.project_repo import ProjectRepo
 from metagpt.utils.report import DocsReporter, GalleryReporter
 
-from metagpt.openspec import (
+from metagpt.utils.openspec import (
     OpenSpecTemplateEngine,
     OpenSpecValidator,
-)
-from metagpt.openspec.models.design import (
     OpenSpecDesign,
-    DesignComponent,
-    RequirementMapping,
-    CrossReference,
+    OpenSpecRequirement,
 )
-from metagpt.openspec.models.requirement import OpenSpecRequirement
 from metagpt.openspec.cross_ref.design_manager import DesignCrossReferenceManager
 
 
