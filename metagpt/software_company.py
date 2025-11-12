@@ -33,6 +33,7 @@ def generate_repo(
         DataAnalyst,
         Engineer2,
         ProductManager,
+        ProjectManager,
         TeamLeader,
     )
     from metagpt.team import Team
@@ -45,10 +46,10 @@ def generate_repo(
         company.hire(
             [
                 TeamLeader(),
-                ProductManager(),
-                Architect(),
+                ProductManager(config=config),  # Pass config to ProductManager
+                Architect(config=config),       # Pass config to Architect
                 Engineer2(),
-                # ProjectManager(),
+                ProjectManager(config=config),  # Pass config to ProjectManager
                 DataAnalyst(),
             ]
         )

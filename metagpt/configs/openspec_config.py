@@ -116,7 +116,7 @@ class OpenSpecConfig(BaseModel):
     change_tracking: bool = Field(default=True, description="Enable change tracking")
     auto_validate: bool = Field(default=True, description="Automatically validate generated content")
     review_mode: ReviewMode = Field(default=ReviewMode.INTERACTIVE, description="Review mode")
-    workspace_path: str = Field(default="openspec", description="OpenSpec workspace directory")
+    workspace_path: str = Field(default="~/.metagpt/openspec", description="OpenSpec workspace directory")
 
     # Sub-configurations
     validation: ValidationConfig = Field(default_factory=ValidationConfig, description="Validation configuration")

@@ -51,6 +51,13 @@ class Architect(RoleZero):
     use_openspec: bool = True  # Enable OpenSpec by default
 
     def __init__(self, **kwargs) -> None:
+        # Check OpenSpec configuration from global config after super init
+        if 'config' in kwargs:
+            config = kwargs['config']
+            if hasattr(config, 'openspec'):
+                kwargs['use_openspec'] = config.openspec.enabled
+                logger.info(f"Architect OpenSpec mode set to: {config.openspec.enabled} (from config)")
+
         super().__init__(**kwargs)
 
         # Determine which WriteDesign action to use

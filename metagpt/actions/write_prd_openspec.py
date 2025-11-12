@@ -38,6 +38,8 @@ from metagpt.utils.openspec import (
     OpenSpecRequirement,
     OpenSpecValidator,
     OpenSpecGenerator,
+    OpenSpecWorkspaceManager,
+    get_default_workspace_path,
 )
 
 
@@ -58,6 +60,49 @@ class WritePRDWithOpenSpec(WritePRD):
         # Initialize OpenSpec components
         self.openspec_template_engine = OpenSpecTemplateEngine()
         self.openspec_validator = OpenSpecValidator(strict_mode=False)
+
+        # Initialize OpenSpec workspace manager
+        self._init_openspec_workspace()
+
+    def _init_openspec_workspace(self):
+        """Initialize OpenSpec workspace manager"""
+        workspace_path = None
+
+        # Try to get OpenSpec configuration from various sources
+        config_sources = [
+            (getattr(self, 'rc', None), 'rc.config'),
+            (getattr(self, 'config', None), 'config'),
+        ]
+
+        for config_obj, config_name in config_sources:
+            if config_obj and hasattr(config_obj, 'openspec'):
+                workspace_path = getattr(config_obj.openspec, 'workspace_path', None)
+                logger.info(f"Found OpenSpec config in {config_name}: workspace_path={workspace_path}")
+                break
+
+        # Fallback: try loading from config directly
+        if not workspace_path:
+            try:
+                from metagpt.config2 import config
+                if hasattr(config, 'openspec') and hasattr(config.openspec, 'workspace_path'):
+                    workspace_path = config.openspec.workspace_path
+                    logger.info(f"Found OpenSpec config from global config: workspace_path={workspace_path}")
+            except Exception as e:
+                logger.warning(f"Could not load global config: {e}")
+
+        if workspace_path:
+            # Convert relative path to absolute path, expanding ~ first
+            workspace_path = Path(workspace_path).expanduser()
+            if not workspace_path.is_absolute():
+                # If relative, make it relative to the user's metagpt config directory
+                workspace_path = Path.home() / ".metagpt" / workspace_path
+        else:
+            # Default to user's metagpt config directory / openspec
+            workspace_path = Path.home() / ".metagpt" / "openspec"
+
+        self.openspec_workspace = OpenSpecWorkspaceManager(workspace_path)
+        self.openspec_workspace.ensure_workspace()
+        logger.info(f"OpenSpec workspace initialized at: {workspace_path}")
 
     async def generate_openspec_requirement(
         self,
@@ -498,32 +543,57 @@ Guidelines:
         output_pathname: str,
         openspec_requirement: OpenSpecRequirement,
     ):
-        """Save OpenSpec content to file.
+        """Save OpenSpec content to file using OpenSpec workspace.
 
         Args:
             content: Markdown content
-            output_pathname: Output file path
+            output_pathname: Output file path (if provided, will also save to OpenSpec workspace)
             openspec_requirement: The OpenSpec requirement object
         """
         try:
-            # Ensure directory exists
-            output_path = Path(output_pathname)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Save to OpenSpec workspace first
+            change_id = self._generate_change_id(openspec_requirement.title)
 
-            # Save markdown content
-            await awrite(output_pathname, content)
+            # Save to OpenSpec workspace
+            if hasattr(self, 'openspec_workspace'):
+                saved_to_workspace = self.openspec_workspace.save_spec(change_id, "requirement", content)
+                if saved_to_workspace:
+                    workspace_path = self.openspec_workspace.workspace_path / "changes" / change_id / "requirement.md"
+                    logger.info(f"OpenSpec specification saved to workspace: {workspace_path}")
 
-            # Also save as JSON for structured access
-            json_path = output_path.with_suffix('.json')
-            json_content = openspec_requirement.model_dump_json(indent=2)
-            await awrite(str(json_path), json_content)
+            # Also save to the requested output path for backward compatibility
+            if output_pathname:
+                output_path = Path(output_pathname)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            logger.info(f"OpenSpec specification saved to: {output_pathname}")
-            logger.info(f"OpenSpec JSON saved to: {json_path}")
+                # Save markdown content
+                await awrite(output_pathname, content)
+
+                # Also save as JSON for structured access
+                json_path = output_path.with_suffix('.json')
+                json_content = openspec_requirement.model_dump_json(indent=2)
+                await awrite(str(json_path), json_content)
+
+                logger.info(f"OpenSpec specification saved to: {output_pathname}")
+                logger.info(f"OpenSpec JSON saved to: {json_path}")
 
         except Exception as e:
             logger.error(f"Error saving OpenSpec content: {e}")
             raise
+
+    def _generate_change_id(self, title: str) -> str:
+        """Generate a change ID from title"""
+        import re
+        # Convert title to a change ID format
+        # Remove special characters and replace with underscores
+        clean_title = re.sub(r'[^a-zA-Z0-9\s]', '', title)
+        clean_title = re.sub(r'\s+', '_', clean_title.strip())
+
+        # Add timestamp to make it unique
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        return f"{clean_title}_{timestamp}"
 
     async def _execute_openspec_api(
         self,

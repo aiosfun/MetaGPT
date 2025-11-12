@@ -1,7 +1,8 @@
-# OpenSpec Configuration Management Specification
+# openspec-configuration-management Specification
 
-## ADDED Requirements
-
+## Purpose
+TBD - created by archiving change 2025-11-12-openspec-cm-integration. Update Purpose after archive.
+## Requirements
 ### Requirement: MetaGPT Native Configuration Integration
 MetaGPT SHALL provide native OpenSpec configuration support through the standard `config2.yaml` configuration system, enabling seamless integration with existing MetaGPT workflows.
 
@@ -224,16 +225,14 @@ The OpenSpec configuration system SHALL provide security controls to protect sen
 **AND** prevents unauthorized configuration changes
 **AND** provides configuration access monitoring and alerting
 
-## MODIFIED Requirements
-
 ### Requirement: Enhanced OpenSpec Validation System
-**Original**: Fixed validation with basic error reporting
-**Enhanced**: Configurable validation with multiple strictness levels and custom rules
+MetaGPT SHALL provide an enhanced OpenSpec validation system that supports configurable validation with multiple strictness levels and custom rules.
 
 #### Scenario: Configurable Validation Strictness
-**MODIFIED**:
-- **WHEN** OpenSpec validation is configured
-- **THEN** the system applies validation based on configured strictness mode
-- **AND** provides different error handling behaviors per mode
-- **AND** supports dynamic validation mode switching
-- **AND** maintains validation performance through intelligent caching
+**Given** OpenSpec validation is configured with a specific strictness mode
+**WHEN** validation rules are applied to specifications
+**THEN** the system SHALL apply validation based on the configured strictness mode (strict/lenient/permissive)
+**AND** SHALL provide different error handling behaviors based on the selected mode
+**AND** SHALL support dynamic validation mode switching during runtime
+**AND** SHALL maintain validation performance through intelligent rule caching
+

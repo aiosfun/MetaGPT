@@ -38,8 +38,16 @@ class ProjectManager(RoleZero):
     tools: list[str] = ["Editor:write,read,similarity_search", "RoleZero", "WriteTasks"]
 
     use_openspec: bool = True  # Enable OpenSpec by default
+    todo_action: str = any_to_name(WriteTasks)
 
     def __init__(self, **kwargs) -> None:
+        # Check OpenSpec configuration from global config after super init
+        if 'config' in kwargs:
+            config = kwargs['config']
+            if hasattr(config, 'openspec'):
+                kwargs['use_openspec'] = config.openspec.enabled
+                logger.info(f"ProjectManager OpenSpec mode set to: {config.openspec.enabled} (from config)")
+
         super().__init__(**kwargs)
 
         # Determine which WriteTasks action to use
@@ -49,6 +57,9 @@ class ProjectManager(RoleZero):
         self.enable_memory = False
         self.set_actions([write_tasks_action])
         self._watch([WriteDesign])
+
+        # Update todo_action based on OpenSpec setting
+        self.todo_action = any_to_name(write_tasks_action)
 
     def _update_tool_execution(self):
         # Choose the appropriate WriteTasks action based on OpenSpec setting

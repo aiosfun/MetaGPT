@@ -2,7 +2,7 @@
 
 ## Why
 
-The current MetaGPT system lacks comprehensive OpenSpec integration and configuration management capabilities. Users need:
+The current MetaGPT system lacks comprehensive OpenSpec integration and configuration management capabilities. MetaGPT SHALL provide:
 1. **Complete OpenSpec workflow support** - Full requirement generation, design creation, and task management following OpenSpec conventions
 2. **Interactive review loops** - Human-in-the-loop workflows for specification review and approval
 3. **Configuration management** - Fine-grained control over OpenSpec behaviors without code modifications
@@ -54,9 +54,10 @@ This configuration integrates seamlessly with MetaGPT's existing configuration s
 
 ## Impact
 
+MetaGPT SHALL deliver the following benefits:
 - **Users**: Complete OpenSpec workflow with interactive review and configuration control
 - **Developers**: Configurable system with easy customization without code changes
 - **System**: Seamless integration with existing MetaGPT architecture plus powerful new capabilities
 - **Maintenance**: Modular design with clear separation of concerns and easy updates
 
-The change maintains full backward compatibility while providing comprehensive OpenSpec capabilities that make MetaGPT a complete specification-driven development platform.
+The change SHALL maintain full backward compatibility while providing comprehensive OpenSpec capabilities that make MetaGPT a complete specification-driven development platform.
