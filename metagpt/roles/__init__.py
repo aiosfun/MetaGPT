@@ -14,6 +14,7 @@ from metagpt.roles.engineer import Engineer
 from metagpt.roles.qa_engineer import QaEngineer
 from metagpt.roles.searcher import Searcher
 from metagpt.roles.sales import Sales
+from metagpt.roles.code_annotator import CodeAnnotator
 from metagpt.roles.di.data_analyst import DataAnalyst
 from metagpt.roles.di.team_leader import TeamLeader
 from metagpt.roles.di.engineer2 import Engineer2
@@ -28,6 +29,7 @@ __all__ = [
     "QaEngineer",
     "Searcher",
     "Sales",
+    "CodeAnnotator",
     "DataAnalyst",
     "TeamLeader",
     "Engineer2",
