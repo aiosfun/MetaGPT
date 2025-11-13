@@ -11,4 +11,4 @@ class MathHelper:
         return self.base + x
     
     def multiply(self, x):
-        return self.base * x
+        return self.base * x 
