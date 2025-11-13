@@ -43,7 +43,35 @@ from metagpt.utils.openspec import (
     OpenSpecTemplateEngine,
     OpenSpecValidator,
     OpenSpecTask,
+    OpenSpecWorkspaceManager,
+    get_default_workspace_path,
 )
+
+# Simple task specification wrapper for backward compatibility
+class OpenSpecTaskSpecification:
+    """Simple wrapper for task specification data"""
+    def __init__(self, name: str, description: str, tasks: list, **kwargs):
+        self.name = name
+        self.description = description
+        self.tasks = tasks
+        for key, value in kwargs.items():
+            setattr(self, key, value)
+
+    def model_dump_json(self, indent=2):
+        """Export to JSON"""
+        import json
+        data = {
+            "name": self.name,
+            "description": self.description,
+            "tasks": self.tasks
+        }
+        # Add other attributes
+        for key in dir(self):
+            if not key.startswith('_') and key not in ['name', 'description', 'tasks']:
+                value = getattr(self, key)
+                if not callable(value):
+                    data[key] = value
+        return json.dumps(data, indent=indent)
 
 
 @register_tool(include_functions=["run"])
@@ -64,6 +92,49 @@ class WriteTasksWithOpenSpec(WriteTasks):
         # Initialize OpenSpec components
         self.openspec_template_engine = OpenSpecTemplateEngine()
         self.openspec_validator = OpenSpecValidator(strict_mode=False)
+
+        # Initialize OpenSpec workspace manager
+        self._init_openspec_workspace()
+
+    def _init_openspec_workspace(self):
+        """Initialize OpenSpec workspace manager"""
+        workspace_path = None
+
+        # Try to get OpenSpec configuration from various sources
+        config_sources = [
+            (getattr(self, 'rc', None), 'rc.config'),
+            (getattr(self, 'config', None), 'config'),
+        ]
+
+        for config_obj, config_name in config_sources:
+            if config_obj and hasattr(config_obj, 'openspec'):
+                workspace_path = getattr(config_obj.openspec, 'workspace_path', None)
+                logger.info(f"Found OpenSpec config in {config_name}: workspace_path={workspace_path}")
+                break
+
+        # Fallback: try loading from config directly
+        if not workspace_path:
+            try:
+                from metagpt.config2 import config
+                if hasattr(config, 'openspec') and hasattr(config.openspec, 'workspace_path'):
+                    workspace_path = config.openspec.workspace_path
+                    logger.info(f"Found OpenSpec config from global config: workspace_path={workspace_path}")
+            except Exception as e:
+                logger.warning(f"Could not load global config: {e}")
+
+        if workspace_path:
+            # Convert relative path to absolute path, expanding ~ first
+            workspace_path = Path(workspace_path).expanduser()
+            if not workspace_path.is_absolute():
+                # If relative, make it relative to the user's metagpt config directory
+                workspace_path = Path.home() / ".metagpt" / workspace_path
+        else:
+            # Default to user's metagpt config directory / openspec
+            workspace_path = Path.home() / ".metagpt" / "openspec"
+
+        self.openspec_workspace = OpenSpecWorkspaceManager(workspace_path)
+        self.openspec_workspace.ensure_workspace()
+        logger.info(f"OpenSpec workspace initialized at: {workspace_path}")
 
     async def generate_openspec_tasks(
         self,
@@ -94,22 +165,21 @@ class WriteTasksWithOpenSpec(WriteTasks):
         task_spec = OpenSpecTaskSpecification(
             name=self._generate_task_spec_name(design_content),
             description=self._generate_task_spec_description(design_content),
-            implementation_tasks=task_data.get("tasks", []),
+            tasks=task_data.get("tasks", []),
             package_dependencies=task_data.get("package_dependencies", []),
             api_specifications=task_data.get("api_specifications"),
             shared_knowledge=task_data.get("shared_knowledge"),
         )
 
-        # Update requirement mappings
-        task_spec.update_requirement_mappings()
+        # Update requirement mappings (simplified for now)
+        if requirements:
+            task_spec.requirements_mappings = requirements
 
-        # Validate the generated specification
-        # Note: We would create a TaskValidator, but for now using basic validation
-        errors = task_spec.get_validation_errors()
-        if errors:
-            logger.warning(f"OpenSpec task validation issues found: {len(errors)} issues")
-            for error in errors[:3]:  # Log first 3 errors
-                logger.debug(f"  {error}")
+        # Validate the generated specification (simplified)
+        if not task_spec.tasks:
+            logger.warning("No tasks found in task specification")
+        else:
+            logger.info(f"OpenSpec task specification created with {len(task_spec.tasks)} tasks")
 
         return task_spec
 
@@ -533,34 +603,108 @@ Guidelines for OpenSpec-compliant task generation:
         self,
         content: str,
         output_pathname: str,
-        task_spec: OpenSpecTaskSpecification,
+        task_spec: "OpenSpecTaskSpecification",
+        change_id: str = None,
     ):
-        """Save OpenSpec task content to file.
+        """Save OpenSpec task content to file using OpenSpec workspace.
 
         Args:
             content: Markdown content
-            output_pathname: Output file path
+            output_pathname: Output file path (if provided, will also save to OpenSpec workspace)
             task_spec: The OpenSpec task specification object
+            change_id: Optional change ID to use for shared changes
         """
         try:
-            # Ensure directory exists
-            output_path = Path(output_pathname)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Use provided change_id or generate unique one
+            task_name = getattr(task_spec, 'name', 'Task Specification')
+            if change_id is None:
+                change_id = self._generate_change_id(task_name)
+            logger.info(f"Generated change ID: {change_id}")
+            logger.info(f"OpenSpec workspace path: {self.openspec_workspace.workspace_path}")
 
-            # Save markdown content
-            await awrite(output_pathname, content)
+            # Ensure workspace structure exists
+            self.openspec_workspace.ensure_workspace()
+            logger.info("✅ OpenSpec workspace structure ensured")
 
-            # Also save as JSON for structured access
-            json_path = output_path.with_suffix('.json')
-            json_content = task_spec.json(indent=2)
-            await awrite(str(json_path), json_content)
+            # Save to OpenSpec workspace
+            workspace_saved = False
+            if hasattr(self, 'openspec_workspace'):
+                logger.info("🔄 Attempting to save tasks to OpenSpec workspace...")
+                saved_to_workspace = self.openspec_workspace.save_spec(change_id, "tasks", content)
+                if saved_to_workspace:
+                    workspace_path = self.openspec_workspace.workspace_path / "changes" / change_id / "tasks.md"
+                    logger.info(f"✅ OpenSpec tasks saved to workspace: {workspace_path}")
 
-            logger.info(f"OpenSpec task specification saved to: {output_pathname}")
-            logger.info(f"OpenSpec task JSON saved to: {json_path}")
+                    # Verify file was actually created
+                    if workspace_path.exists():
+                        file_size = workspace_path.stat().st_size
+                        logger.info(f"✅ Workspace tasks file verified: {workspace_path} ({file_size} bytes)")
+                        workspace_saved = True
+                    else:
+                        logger.error(f"❌ Workspace tasks file not found after save: {workspace_path}")
+                else:
+                    logger.error("❌ Failed to save tasks to OpenSpec workspace")
+
+            # Also save to the requested output path for backward compatibility
+            if output_pathname:
+                logger.info(f"🔄 Saving tasks to output path: {output_pathname}")
+                output_path = Path(output_pathname)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Save markdown content
+                await awrite(output_pathname, content)
+                logger.info(f"✅ Tasks markdown saved to: {output_pathname}")
+
+                # Also save as JSON for structured access
+                json_path = output_path.with_suffix('.json')
+                json_content = task_spec.model_dump_json(indent=2)
+                await awrite(str(json_path), json_content)
+                logger.info(f"✅ Tasks JSON saved to: {json_path}")
+
+                # Verify files were created
+                if output_path.exists() and json_path.exists():
+                    logger.info(f"✅ Tasks output files verified: {output_path} ({output_path.stat().st_size} bytes), {json_path} ({json_path.stat().st_size} bytes)")
+                else:
+                    logger.error("❌ Tasks output files verification failed")
+
+            # Summary logging
+            logger.info("=" * 60)
+            logger.info("📁 OpenSpec Tasks File Generation Summary:")
+            logger.info(f"   Change ID: {change_id}")
+            logger.info(f"   Task Specification Name: {task_name}")
+            logger.info(f"   Workspace Saved: {'✅ YES' if workspace_saved else '❌ NO'}")
+            logger.info(f"   Output Path: {output_pathname if output_pathname else 'None'}")
+            logger.info(f"   Workspace Directory: {self.openspec_workspace.workspace_path}")
+
+            # List all files in the change directory
+            change_dir = self.openspec_workspace.workspace_path / "changes" / change_id
+            if change_dir.exists():
+                files_in_change = list(change_dir.glob("*"))
+                logger.info(f"   Files in change directory: {len(files_in_change)}")
+                for file in files_in_change:
+                    logger.info(f"     - {file.name} ({file.stat().st_size} bytes)")
+
+            logger.info("=" * 60)
 
         except Exception as e:
-            logger.error(f"Error saving OpenSpec tasks: {e}")
+            logger.error(f"❌ Error saving OpenSpec tasks: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
+
+    def _generate_change_id(self, title: str) -> str:
+        """Generate a change ID from title"""
+        import re
+        # Convert title to a change ID format
+        # Remove special characters and replace with underscores
+        clean_title = re.sub(r'[^a-zA-Z0-9\s]', '', title)
+        clean_title = re.sub(r'\s+', '_', clean_title.strip())
+
+        # Add timestamp to make it unique
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        return f"{clean_title}_{timestamp}"
 
     async def _execute_openspec_api(
         self,

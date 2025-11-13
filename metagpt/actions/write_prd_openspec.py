@@ -542,6 +542,7 @@ Guidelines:
         content: str,
         output_pathname: str,
         openspec_requirement: OpenSpecRequirement,
+        change_id: str = None,
     ):
         """Save OpenSpec content to file using OpenSpec workspace.
 
@@ -549,36 +550,83 @@ Guidelines:
             content: Markdown content
             output_pathname: Output file path (if provided, will also save to OpenSpec workspace)
             openspec_requirement: The OpenSpec requirement object
+            change_id: Optional change ID to use for shared changes
         """
         try:
-            # Save to OpenSpec workspace first
-            change_id = self._generate_change_id(openspec_requirement.title)
+            # Use provided change_id or generate unique one
+            if change_id is None:
+                change_id = self._generate_change_id(openspec_requirement.title)
+            logger.info(f"Generated change ID: {change_id}")
+            logger.info(f"OpenSpec workspace path: {self.openspec_workspace.workspace_path}")
+
+            # Ensure workspace structure exists
+            self.openspec_workspace.ensure_workspace()
+            logger.info("✅ OpenSpec workspace structure ensured")
 
             # Save to OpenSpec workspace
+            workspace_saved = False
             if hasattr(self, 'openspec_workspace'):
+                logger.info("🔄 Attempting to save to OpenSpec workspace...")
                 saved_to_workspace = self.openspec_workspace.save_spec(change_id, "requirement", content)
                 if saved_to_workspace:
                     workspace_path = self.openspec_workspace.workspace_path / "changes" / change_id / "requirement.md"
-                    logger.info(f"OpenSpec specification saved to workspace: {workspace_path}")
+                    logger.info(f"✅ OpenSpec specification saved to workspace: {workspace_path}")
+
+                    # Verify file was actually created
+                    if workspace_path.exists():
+                        file_size = workspace_path.stat().st_size
+                        logger.info(f"✅ Workspace file verified: {workspace_path} ({file_size} bytes)")
+                        workspace_saved = True
+                    else:
+                        logger.error(f"❌ Workspace file not found after save: {workspace_path}")
+                else:
+                    logger.error("❌ Failed to save to OpenSpec workspace")
 
             # Also save to the requested output path for backward compatibility
             if output_pathname:
+                logger.info(f"🔄 Saving to output path: {output_pathname}")
                 output_path = Path(output_pathname)
                 output_path.parent.mkdir(parents=True, exist_ok=True)
 
                 # Save markdown content
                 await awrite(output_pathname, content)
+                logger.info(f"✅ Markdown saved to: {output_pathname}")
 
                 # Also save as JSON for structured access
                 json_path = output_path.with_suffix('.json')
                 json_content = openspec_requirement.model_dump_json(indent=2)
                 await awrite(str(json_path), json_content)
+                logger.info(f"✅ JSON saved to: {json_path}")
 
-                logger.info(f"OpenSpec specification saved to: {output_pathname}")
-                logger.info(f"OpenSpec JSON saved to: {json_path}")
+                # Verify files were created
+                if output_path.exists() and json_path.exists():
+                    logger.info(f"✅ Output files verified: {output_path} ({output_path.stat().st_size} bytes), {json_path} ({json_path.stat().st_size} bytes)")
+                else:
+                    logger.error("❌ Output files verification failed")
+
+            # Summary logging
+            logger.info("=" * 60)
+            logger.info("📁 OpenSpec File Generation Summary:")
+            logger.info(f"   Change ID: {change_id}")
+            logger.info(f"   Requirement Title: {openspec_requirement.title}")
+            logger.info(f"   Workspace Saved: {'✅ YES' if workspace_saved else '❌ NO'}")
+            logger.info(f"   Output Path: {output_pathname if output_pathname else 'None'}")
+            logger.info(f"   Workspace Directory: {self.openspec_workspace.workspace_path}")
+
+            # List all files in the change directory
+            change_dir = self.openspec_workspace.workspace_path / "changes" / change_id
+            if change_dir.exists():
+                files_in_change = list(change_dir.glob("*"))
+                logger.info(f"   Files in change directory: {len(files_in_change)}")
+                for file in files_in_change:
+                    logger.info(f"     - {file.name} ({file.stat().st_size} bytes)")
+
+            logger.info("=" * 60)
 
         except Exception as e:
-            logger.error(f"Error saving OpenSpec content: {e}")
+            logger.error(f"❌ Error saving OpenSpec content: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
 
     def _generate_change_id(self, title: str) -> str:

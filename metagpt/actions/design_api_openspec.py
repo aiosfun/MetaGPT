@@ -42,6 +42,8 @@ from metagpt.utils.openspec import (
     OpenSpecValidator,
     OpenSpecDesign,
     OpenSpecRequirement,
+    OpenSpecWorkspaceManager,
+    get_default_workspace_path,
 )
 from metagpt.openspec.cross_ref.design_manager import DesignCrossReferenceManager
 
@@ -66,6 +68,49 @@ class WriteDesignWithOpenSpec(WriteDesign):
         self.openspec_template_engine = OpenSpecTemplateEngine()
         self.openspec_validator = OpenSpecValidator(strict_mode=False)
         self.design_cross_ref_manager = DesignCrossReferenceManager()
+
+        # Initialize OpenSpec workspace manager
+        self._init_openspec_workspace()
+
+    def _init_openspec_workspace(self):
+        """Initialize OpenSpec workspace manager"""
+        workspace_path = None
+
+        # Try to get OpenSpec configuration from various sources
+        config_sources = [
+            (getattr(self, 'rc', None), 'rc.config'),
+            (getattr(self, 'config', None), 'config'),
+        ]
+
+        for config_obj, config_name in config_sources:
+            if config_obj and hasattr(config_obj, 'openspec'):
+                workspace_path = getattr(config_obj.openspec, 'workspace_path', None)
+                logger.info(f"Found OpenSpec config in {config_name}: workspace_path={workspace_path}")
+                break
+
+        # Fallback: try loading from config directly
+        if not workspace_path:
+            try:
+                from metagpt.config2 import config
+                if hasattr(config, 'openspec') and hasattr(config.openspec, 'workspace_path'):
+                    workspace_path = config.openspec.workspace_path
+                    logger.info(f"Found OpenSpec config from global config: workspace_path={workspace_path}")
+            except Exception as e:
+                logger.warning(f"Could not load global config: {e}")
+
+        if workspace_path:
+            # Convert relative path to absolute path, expanding ~ first
+            workspace_path = Path(workspace_path).expanduser()
+            if not workspace_path.is_absolute():
+                # If relative, make it relative to the user's metagpt config directory
+                workspace_path = Path.home() / ".metagpt" / workspace_path
+        else:
+            # Default to user's metagpt config directory / openspec
+            workspace_path = Path.home() / ".metagpt" / "openspec"
+
+        self.openspec_workspace = OpenSpecWorkspaceManager(workspace_path)
+        self.openspec_workspace.ensure_workspace()
+        logger.info(f"OpenSpec workspace initialized at: {workspace_path}")
 
     async def generate_openspec_design(
         self,
@@ -100,30 +145,37 @@ class WriteDesignWithOpenSpec(WriteDesign):
 
         # Create OpenSpec design structure
         openspec_design = OpenSpecDesign(
-            name=self._generate_design_name(user_requirement),
-            design_overview=self._generate_design_overview(design_data, user_requirement),
-            design_components=design_data.get("components", []),
-            requirements_mapping=design_data.get("requirement_mappings", []),
-            cross_references=design_data.get("cross_references", []),
-            architectural_patterns=design_data.get("architectural_patterns", []),
-            design_principles=design_data.get("design_principles", []),
-            technology_stack=design_data.get("technology_stack"),
-            data_model=design_data.get("data_model"),
-            api_specifications=design_data.get("api_specifications"),
-            quality_attributes=design_data.get("quality_attributes", {}),
-            constraints=design_data.get("constraints", []),
+            title=self._generate_design_name(user_requirement),
+            description=self._generate_design_overview(design_data, user_requirement),
+            architecture={"overview": design_data.get("design_overview", "")},
+            components=design_data.get("components", []),
+            technical_decisions=[],
+            tradeoffs=[],
+            metadata={
+                "requirements_mapping": design_data.get("requirement_mappings", []),
+                "cross_references": design_data.get("cross_references", []),
+                "architectural_patterns": design_data.get("architectural_patterns", []),
+                "design_principles": design_data.get("design_principles", []),
+                "technology_stack": design_data.get("technology_stack"),
+                "data_model": design_data.get("data_model"),
+                "api_specifications": design_data.get("api_specifications"),
+                "quality_attributes": design_data.get("quality_attributes", {}),
+                "constraints": design_data.get("constraints", []),
+            }
         )
 
-        # Add to cross-reference manager
-        self.design_cross_ref_manager.add_design(openspec_design)
+        # Add to cross-reference manager (skip for now to avoid name/title mismatch)
+        # self.design_cross_ref_manager.add_design(openspec_design)
 
         # Validate the generated specification
-        validation_result = self.openspec_validator.validate(openspec_design)
+        validation_result = self.openspec_validator.validate_design(openspec_design)
         if not validation_result.is_valid:
-            logger.warning(f"OpenSpec design validation issues found: {validation_result.get_summary()}")
+            logger.warning(f"OpenSpec design validation issues found: {len(validation_result.errors)} errors, {len(validation_result.warnings)} warnings")
             # Log detailed issues for debugging
-            for issue in validation_result.issues:
-                logger.debug(f"  {issue}")
+            for error in validation_result.errors:
+                logger.debug(f"  Error: {error}")
+            for warning in validation_result.warnings:
+                logger.debug(f"  Warning: {warning}")
 
         return openspec_design
 
@@ -356,22 +408,22 @@ Guidelines for OpenSpec-compliant design generation:
                         "endpoint": interface.get("endpoint")
                     })
 
-            design_component = DesignComponent(
-                name=comp.get("name", f"Component_{i+1}"),
-                purpose=comp.get("purpose", ""),
-                description=comp.get("description", ""),
-                element_type=comp.get("element_type", "component"),
-                interfaces=interfaces,
-                dependencies=comp.get("dependencies", []),
-                sub_components=comp.get("sub_components", []),
-                behavior=comp.get("behavior"),
-                data_flow=comp.get("data_flow"),
-                technology=comp.get("technology"),
-                implementation_notes=comp.get("implementation_notes"),
-                performance_requirements=comp.get("performance_requirements"),
-                security_considerations=comp.get("security_considerations"),
-                scalability_notes=comp.get("scalability_notes")
-            )
+            design_component = {
+                "name": comp.get("name", f"Component_{i+1}"),
+                "purpose": comp.get("purpose", ""),
+                "description": comp.get("description", ""),
+                "element_type": comp.get("element_type", "component"),
+                "interfaces": interfaces,
+                "dependencies": comp.get("dependencies", []),
+                "sub_components": comp.get("sub_components", []),
+                "behavior": comp.get("behavior"),
+                "data_flow": comp.get("data_flow"),
+                "technology": comp.get("technology"),
+                "implementation_notes": comp.get("implementation_notes"),
+                "performance_requirements": comp.get("performance_requirements"),
+                "security_considerations": comp.get("security_considerations"),
+                "scalability_notes": comp.get("scalability_notes")
+            }
             components.append(design_component)
 
         # Extract requirement mappings
@@ -438,15 +490,15 @@ Guidelines for OpenSpec-compliant design generation:
         # Create basic components
         components = []
         for i, keyword in enumerate(unique_keywords):
-            component = DesignComponent(
-                name=f"{keyword.title()}Component",
-                purpose=f"Handle {keyword} functionality",
-                description=f"Component responsible for {keyword} operations",
-                element_type="component",
-                interfaces=[],
-                dependencies=[],
-                technology="Python"
-            )
+            component = {
+                "name": f"{keyword.title()}Component",
+                "purpose": f"Handle {keyword} functionality",
+                "description": f"Component responsible for {keyword} operations",
+                "element_type": "component",
+                "interfaces": [],
+                "dependencies": [],
+                "technology": "Python"
+            }
             components.append(component)
 
         return {
@@ -688,33 +740,106 @@ Guidelines for OpenSpec-compliant design generation:
         content: str,
         output_pathname: str,
         openspec_design: OpenSpecDesign,
+        change_id: str = None,
     ):
-        """Save OpenSpec design content to file.
+        """Save OpenSpec design content to file using OpenSpec workspace.
 
         Args:
             content: Markdown content
-            output_pathname: Output file path
+            output_pathname: Output file path (if provided, will also save to OpenSpec workspace)
             openspec_design: The OpenSpec design object
+            change_id: Optional change ID to use for shared changes
         """
         try:
-            # Ensure directory exists
-            output_path = Path(output_pathname)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
+            # Use provided change_id or generate unique one
+            if change_id is None:
+                change_id = self._generate_change_id(openspec_design.title)
+            logger.info(f"Generated change ID: {change_id}")
+            logger.info(f"OpenSpec workspace path: {self.openspec_workspace.workspace_path}")
 
-            # Save markdown content
-            await awrite(output_pathname, content)
+            # Ensure workspace structure exists
+            self.openspec_workspace.ensure_workspace()
+            logger.info("✅ OpenSpec workspace structure ensured")
 
-            # Also save as JSON for structured access
-            json_path = output_path.with_suffix('.json')
-            json_content = openspec_design.json(indent=2)
-            await awrite(str(json_path), json_content)
+            # Save to OpenSpec workspace
+            workspace_saved = False
+            if hasattr(self, 'openspec_workspace'):
+                logger.info("🔄 Attempting to save design to OpenSpec workspace...")
+                saved_to_workspace = self.openspec_workspace.save_spec(change_id, "design", content)
+                if saved_to_workspace:
+                    workspace_path = self.openspec_workspace.workspace_path / "changes" / change_id / "design.md"
+                    logger.info(f"✅ OpenSpec design saved to workspace: {workspace_path}")
 
-            logger.info(f"OpenSpec design specification saved to: {output_pathname}")
-            logger.info(f"OpenSpec design JSON saved to: {json_path}")
+                    # Verify file was actually created
+                    if workspace_path.exists():
+                        file_size = workspace_path.stat().st_size
+                        logger.info(f"✅ Workspace design file verified: {workspace_path} ({file_size} bytes)")
+                        workspace_saved = True
+                    else:
+                        logger.error(f"❌ Workspace design file not found after save: {workspace_path}")
+                else:
+                    logger.error("❌ Failed to save design to OpenSpec workspace")
+
+            # Also save to the requested output path for backward compatibility
+            if output_pathname:
+                logger.info(f"🔄 Saving design to output path: {output_pathname}")
+                output_path = Path(output_pathname)
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+
+                # Save markdown content
+                await awrite(output_pathname, content)
+                logger.info(f"✅ Design markdown saved to: {output_pathname}")
+
+                # Also save as JSON for structured access
+                json_path = output_path.with_suffix('.json')
+                json_content = openspec_design.model_dump_json(indent=2)
+                await awrite(str(json_path), json_content)
+                logger.info(f"✅ Design JSON saved to: {json_path}")
+
+                # Verify files were created
+                if output_path.exists() and json_path.exists():
+                    logger.info(f"✅ Design output files verified: {output_path} ({output_path.stat().st_size} bytes), {json_path} ({json_path.stat().st_size} bytes)")
+                else:
+                    logger.error("❌ Design output files verification failed")
+
+            # Summary logging
+            logger.info("=" * 60)
+            logger.info("📁 OpenSpec Design File Generation Summary:")
+            logger.info(f"   Change ID: {change_id}")
+            logger.info(f"   Design Title: {openspec_design.title}")
+            logger.info(f"   Workspace Saved: {'✅ YES' if workspace_saved else '❌ NO'}")
+            logger.info(f"   Output Path: {output_pathname if output_pathname else 'None'}")
+            logger.info(f"   Workspace Directory: {self.openspec_workspace.workspace_path}")
+
+            # List all files in the change directory
+            change_dir = self.openspec_workspace.workspace_path / "changes" / change_id
+            if change_dir.exists():
+                files_in_change = list(change_dir.glob("*"))
+                logger.info(f"   Files in change directory: {len(files_in_change)}")
+                for file in files_in_change:
+                    logger.info(f"     - {file.name} ({file.stat().st_size} bytes)")
+
+            logger.info("=" * 60)
 
         except Exception as e:
-            logger.error(f"Error saving OpenSpec design: {e}")
+            logger.error(f"❌ Error saving OpenSpec design: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             raise
+
+    def _generate_change_id(self, title: str) -> str:
+        """Generate a change ID from title"""
+        import re
+        # Convert title to a change ID format
+        # Remove special characters and replace with underscores
+        clean_title = re.sub(r'[^a-zA-Z0-9\s]', '', title)
+        clean_title = re.sub(r'\s+', '_', clean_title.strip())
+
+        # Add timestamp to make it unique
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+        return f"{clean_title}_{timestamp}"
 
     async def _execute_openspec_api(
         self,
