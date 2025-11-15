@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+"""
+Updated v1_basic_agent.py using MetaGPT framework with LLMTalker role.
+Removes all LLM configuration and uses LLMTalker for all LLM communication.
+"""
 import os
 import sys
 import json
@@ -6,60 +10,16 @@ import re
 import time
 import threading
 import subprocess
+import asyncio
 from pathlib import Path
 from typing import Union, Optional
 
-try:
-    from anthropic import Anthropic
-except Exception as e:
-    sys.stderr.write("Install with: pip install anthropic\n")
-    raise
+# Import MetaGPT components
+from metagpt.roles.llm_talker import LLMTalker
+from metagpt.actions import Action, ActionOutput
+from metagpt.schema import Message
+from metagpt.logs import logger
 
-# Import configuration system
-import yaml
-from pathlib import Path
-
-class LLMType:
-    OPENAI = "openai"
-    ANTHROPIC = "anthropic"
-    CLAUDE = "claude"
-
-class LLMConfig:
-    def __init__(self):
-        self.api_type = "anthropic"
-        self.api_key = "sk-xxx"
-        self.base_url = "https://api.moonshot.cn/anthropic"
-        self.model = "kimi-k2-turbo-preview"
-        self._load_from_file()
-
-    def _load_from_file(self):
-        """Load configuration from MetaGPT-style config files"""
-        config_paths = [
-            Path.home() / ".metagpt/config2.yaml",
-        ]
-
-        for config_path in config_paths:
-            if config_path.exists():
-                try:
-                    with open(config_path, 'r', encoding='utf-8') as f:
-                        data = yaml.safe_load(f)
-                        if 'llm' in data:
-                            llm_data = data['llm']
-                            self.api_type = llm_data.get('api_type', self.api_type)
-                            self.api_key = llm_data.get('api_key', self.api_key)
-                            self.base_url = llm_data.get('base_url', self.base_url)
-                            self.model = llm_data.get('model', self.model)
-                            break
-                except Exception as e:
-                    sys.stderr.write(f"Warning: Failed to load config from {config_path}: {e}\n")
-                    continue
-
-class Config:
-    def __init__(self):
-        self.llm = LLMConfig()
-
-# Load configuration
-config = Config()
 
 # ---------- Workspace & Helpers ----------
 WORKDIR = Path.cwd()
@@ -144,263 +104,6 @@ def pretty_sub_line(text: str) -> None:
     lines = text.splitlines() or [""]
     for line in lines:
         print(f"  ⎿ {format_markdown(line)}")
-
-
-# Minimal spinner for model waits
-class Spinner:
-    def __init__(self, label: str = "Waiting for model") -> None:
-        self.label = label
-        self.frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        self.color = "\x1b[38;2;255;229;92m"
-        self._stop = threading.Event()
-        self._thread = None
-
-    def start(self):
-        if not sys.stdout.isatty() or self._thread is not None:
-            return
-        self._stop.clear()
-
-        def run():
-            start_ts = time.time()
-            index = 0
-            while not self._stop.is_set():
-                elapsed = time.time() - start_ts
-                frame = self.frames[index % len(self.frames)]
-                styled = f"{self.color}{frame} {self.label} ({elapsed:.1f}s)\x1b[0m"
-                sys.stdout.write("\r" + styled)
-                sys.stdout.flush()
-                index += 1
-                time.sleep(0.08)
-
-        self._thread = threading.Thread(target=run, daemon=True)
-        self._thread.start()
-
-    def stop(self):
-        if self._thread is None:
-            return
-        self._stop.set()
-        self._thread.join(timeout=1)
-        self._thread = None
-        try:
-            # clear current line
-            sys.stdout.write("\r\x1b[2K")
-            sys.stdout.flush()
-        except Exception:
-            pass
-
-
-def log_error_debug(tag: str, info) -> None:
-    try:
-        js = json.dumps(info, ensure_ascii=False, indent=2)
-        out = js if len(js) <= 4000 else js[:4000] + "\n...<truncated>"
-        print(f"⚠️  {tag}:")
-        print(out)
-    except Exception:
-        print(f"⚠️  {tag}: (unserializable info)")
-
-
-# ---------- Content normalization helpers ----------
-def block_to_dict(block):
-    """Convert SDK response block objects to plain dicts for reuse in messages.
-    Supports TextBlock, ToolUseBlock, and dict inputs. Best-effort fallback.
-    """
-    if isinstance(block, dict):
-        return block
-    out = {}
-    for key in ("type", "text", "id", "name", "input", "citations"):
-        if hasattr(block, key):
-            out[key] = getattr(block, key)
-    # Fallback: include any public attributes
-    if not out and hasattr(block, "__dict__"):
-        out = {k: v for k, v in vars(block).items() if not k.startswith("_")}
-        if hasattr(block, "type"):
-            out["type"] = getattr(block, "type")
-    return out
-
-
-def normalize_content_list(content):
-    try:
-        return [block_to_dict(b) for b in (content or [])]
-    except Exception:
-        return []
-
-
-# Wrapper class to make OpenAI client compatible with Anthropic interface
-class OpenAIWrapper:
-    def __init__(self, openai_client):
-        self.client = openai_client
-        self._messages = MessagesWrapper(self.client)
-
-    @property
-    def messages(self):
-        return self._messages
-
-
-class MessagesWrapper:
-    def __init__(self, openai_client):
-        self.client = openai_client
-
-    def create(self, model=None, system=None, messages=None, tools=None, max_tokens=None, **kwargs):
-        """Convert Anthropic-style API call to OpenAI format"""
-        # Convert messages from Anthropic format to OpenAI format
-        openai_messages = []
-
-        # Add system message if provided
-        if system:
-            openai_messages.append({"role": "system", "content": system})
-
-        # Convert other messages
-        for msg in messages:
-            if isinstance(msg, dict):
-                role = msg.get("role")
-                content = msg.get("content", [])
-
-                if role == "user":
-                    if isinstance(content, list):
-                        # Handle tool results and text content
-                        msg_content = []
-                        for item in content:
-                            if isinstance(item, dict):
-                                if item.get("type") == "text":
-                                    msg_content.append({"type": "text", "text": item.get("text", "")})
-                                elif item.get("type") == "tool_result":
-                                    msg_content.append({
-                                        "type": "tool_result",
-                                        "tool_use_id": item.get("tool_use_id"),
-                                        "content": item.get("content", "")
-                                    })
-                        openai_messages.append({"role": "user", "content": msg_content})
-                    else:
-                        openai_messages.append({"role": "user", "content": content})
-
-                elif role == "assistant":
-                    if isinstance(content, list):
-                        # Handle tool use and text content
-                        msg_content = []
-                        for item in content:
-                            if isinstance(item, dict):
-                                if item.get("type") == "text":
-                                    msg_content.append({"type": "text", "text": item.get("text", "")})
-                                elif item.get("type") == "tool_use":
-                                    msg_content.append({
-                                        "type": "function",
-                                        "id": item.get("id"),
-                                        "function": {
-                                            "name": item.get("name"),
-                                            "arguments": json.dumps(item.get("input", {}))
-                                        }
-                                    })
-                        openai_messages.append({"role": "assistant", "content": msg_content})
-                    else:
-                        openai_messages.append({"role": "assistant", "content": content})
-
-        # Convert tools from Anthropic format to OpenAI format
-        openai_tools = None
-        if tools:
-            openai_tools = []
-            for tool in tools:
-                if isinstance(tool, dict):
-                    openai_tools.append({
-                        "type": "function",
-                        "function": {
-                            "name": tool.get("name"),
-                            "description": tool.get("description"),
-                            "parameters": tool.get("input_schema", {})
-                        }
-                    })
-
-        # Make the OpenAI API call
-        response = self.client.chat.completions.create(
-            model=model,
-            messages=openai_messages,
-            tools=openai_tools,
-            max_tokens=max_tokens,
-            **kwargs
-        )
-
-        # Convert OpenAI response back to Anthropic format
-        class MockResponse:
-            def __init__(self, openai_response):
-                self.content = []
-                self.stop_reason = "stop"
-
-                message = openai_response.choices[0].message
-
-                # Add text content
-                if message.content:
-                    self.content.append(type('TextBlock', (), {
-                        'type': 'text',
-                        'text': message.content
-                    })())
-
-                # Add tool calls
-                if message.tool_calls:
-                    self.stop_reason = "tool_use"
-                    for tool_call in message.tool_calls:
-                        self.content.append(type('ToolUseBlock', (), {
-                            'type': 'tool_use',
-                            'id': tool_call.id,
-                            'name': tool_call.function.name,
-                            'input': json.loads(tool_call.function.arguments or '{}')
-                        })())
-
-        return MockResponse(response)
-
-
-# ---------- SDK client ----------
-# Get LLM configuration from MetaGPT config
-llm_config = config.llm
-
-# Initialize appropriate client based on API type
-if llm_config.api_type in [LLMType.ANTHROPIC, LLMType.CLAUDE]:
-    # Anthropic/Claude configuration
-    if not llm_config.api_key or llm_config.api_key in ["", "YOUR_API_KEY", "sk-"]:
-        sys.stderr.write("❌ LLM API key not configured. Please set it in config/config2.yaml\n")
-        sys.exit(1)
-
-    client = Anthropic(
-        api_key=llm_config.api_key,
-        base_url=llm_config.base_url if llm_config.base_url else None
-    )
-    AGENT_MODEL = llm_config.model or "claude-3-5-sonnet-20241022"
-
-elif llm_config.api_type == LLMType.OPENAI:
-    # OpenAI configuration - need to use OpenAI client
-    try:
-        from openai import OpenAI
-        if not llm_config.api_key or llm_config.api_key in ["", "YOUR_API_KEY", "sk-"]:
-            sys.stderr.write("❌ LLM API key not configured. Please set it in config/config2.yaml\n")
-            sys.exit(1)
-
-        client = OpenAI(
-            api_key=llm_config.api_key,
-            base_url=llm_config.base_url if llm_config.base_url else None
-        )
-        AGENT_MODEL = llm_config.model or "gpt-4-turbo"
-        # Use OpenAI wrapper for compatibility
-        client = OpenAIWrapper(client)
-
-    except ImportError:
-        sys.stderr.write("❌ OpenAI library not installed. Install with: pip install openai\n")
-        sys.exit(1)
-
-else:
-    sys.stderr.write(f"❌ LLM type '{llm_config.api_type}' is not supported. Expected 'openai', 'anthropic', or 'claude'\n")
-    sys.exit(1)
-
-
-# ---------- System prompt ----------
-SYSTEM = (
-    f"You are a coding agent operating INSIDE the user's repository at {WORKDIR}.\n"
-    "Follow this loop strictly: plan briefly → use TOOLS to act directly on files/shell → report concise results.\n"
-    "Rules:\n"
-    "- Prefer taking actions with tools (read/write/edit/bash) over long prose.\n"
-    "- Keep outputs terse. Use bullet lists / checklists when summarizing.\n"
-    "- Never invent file paths. Ask via reads or list directories first if unsure.\n"
-    "- For edits, apply the smallest change that satisfies the request.\n"
-    "- For bash, avoid destructive or privileged commands; stay inside the workspace.\n"
-    "- After finishing, summarize what changed and how to run or test."
-)
 
 
 # ---------- Tools ----------
@@ -559,114 +262,247 @@ def run_edit(input_obj: dict) -> str:
         raise ValueError(f"unsupported edit_text.action: {action}")
 
 
-def dispatch_tool(tu: dict) -> dict:
-    try:
-        # Support both dict and SDK block objects
-        def gv(obj, key, default=None):
-            return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
-
-        name = gv(tu, "name")
-        input_obj = gv(tu, "input", {}) or {}
-        tool_use_id = gv(tu, "id")
-
-        if name == "bash":
-            pretty_tool_line("Bash", (input_obj.get("command") if isinstance(input_obj, dict) else None))
-            out = run_bash(input_obj if isinstance(input_obj, dict) else {})
-            pretty_sub_line(clamp_text(out, 2000) if out else "(No content)")
-            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
-        if name == "read_file":
-            pretty_tool_line("Read", (input_obj.get("path") if isinstance(input_obj, dict) else None))
-            out = run_read(input_obj if isinstance(input_obj, dict) else {})
-            pretty_sub_line(clamp_text(out, 2000))
-            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
-        if name == "write_file":
-            pretty_tool_line("Write", (input_obj.get("path") if isinstance(input_obj, dict) else None))
-            out = run_write(input_obj if isinstance(input_obj, dict) else {})
-            pretty_sub_line(out)
-            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
-        if name == "edit_text":
-            action = input_obj.get("action") if isinstance(input_obj, dict) else None
-            path_v = input_obj.get("path") if isinstance(input_obj, dict) else None
-            pretty_tool_line("Edit", f"{action} {path_v}")
-            out = run_edit(input_obj if isinstance(input_obj, dict) else {})
-            pretty_sub_line(out)
-            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
-        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": f"unknown tool: {name}", "is_error": True}
-    except Exception as e:
-        tool_use_id = tu.get("id") if isinstance(tu, dict) else getattr(tu, "id", None)
-        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": str(e), "is_error": True}
-
-
-# ---------- Core loop ----------
-def query(messages: list, opts: Optional[dict] = None) -> list:
-    opts = opts or {}
-    while True:
-        spinner = Spinner()
-        spinner.start()
+# ---------- Actions ----------
+class TalkAction(Action):
+    """Action that uses LLMTalker to communicate with LLM"""
+    
+    def __init__(self, llm_talker: LLMTalker):
+        self.llm_talker = llm_talker
+    
+    async def run(self, message: str, **kwargs) -> ActionOutput:
+        """Send message to LLM and return response"""
         try:
-            res = client.messages.create(
-                model=AGENT_MODEL,
-                system=SYSTEM,
-                messages=messages,
-                tools=tools,
-                max_tokens=16000,
-                **({"tool_choice": opts["tool_choice"]} if "tool_choice" in opts else {}),
-            )
-        finally:
-            spinner.stop()
+            response = await self.llm_talker.talk_to_llm(message)
+            return ActionOutput(content=response, instruct_content=response)
+        except Exception as e:
+            logger.error(f"Error in TalkAction: {e}")
+            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
 
-        tool_uses = []
+
+class BashAction(Action):
+    """Action that executes bash commands"""
+    
+    async def run(self, command: str, **kwargs) -> ActionOutput:
+        """Execute bash command and return output"""
         try:
-            for block in getattr(res, "content", []):
-                btype = getattr(block, "type", None) if not isinstance(block, dict) else block.get("type")
-                if btype == "text":
-                    text = getattr(block, "text", None) if not isinstance(block, dict) else block.get("text")
-                    sys.stdout.write(format_markdown(text or "") + "\n")
-                if btype == "tool_use":
-                    tool_uses.append(block)
-        except Exception as err:
-            log_error_debug(
-                "Iterating res.content failed",
-                {
-                    "error": str(err),
-                    "stop_reason": getattr(res, "stop_reason", None),
-                    "content_type": type(getattr(res, "content", None)).__name__,
-                    "is_array": isinstance(getattr(res, "content", None), list),
-                    "keys": list(res.__dict__.keys()) if hasattr(res, "__dict__") else [],
-                    "preview": (json.dumps(res, default=lambda o: getattr(o, "__dict__", str(o)))[:2000] if res else ""),
-                },
-            )
-            raise
+            timeout_ms = int(kwargs.get("timeout_ms", 30000))
+            result = run_bash({"command": command, "timeout_ms": timeout_ms})
+            return ActionOutput(content=result, instruct_content=f"Executed: {command}")
+        except Exception as e:
+            logger.error(f"Error in BashAction: {e}")
+            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
 
-        if getattr(res, "stop_reason", None) == "tool_use":
-            results = [dispatch_tool(tu) for tu in tool_uses]
-            messages.append({"role": "assistant", "content": normalize_content_list(res.content)})
-            messages.append({"role": "user", "content": results})
-            continue
 
-        messages.append({"role": "assistant", "content": normalize_content_list(res.content)})
-        return messages
+class ReadFileAction(Action):
+    """Action that reads files"""
+    
+    async def run(self, path: str, **kwargs) -> ActionOutput:
+        """Read file and return content"""
+        try:
+            start_line = kwargs.get("start_line")
+            end_line = kwargs.get("end_line")
+            max_chars = kwargs.get("max_chars")
+            
+            input_obj = {"path": path}
+            if start_line is not None:
+                input_obj["start_line"] = start_line
+            if end_line is not None:
+                input_obj["end_line"] = end_line
+            if max_chars is not None:
+                input_obj["max_chars"] = max_chars
+                
+            result = run_read(input_obj)
+            return ActionOutput(content=result, instruct_content=f"Read file: {path}")
+        except Exception as e:
+            logger.error(f"Error in ReadFileAction: {e}")
+            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
+
+
+class WriteFileAction(Action):
+    """Action that writes files"""
+    
+    async def run(self, path: str, content: str, mode: str = "overwrite", **kwargs) -> ActionOutput:
+        """Write file and return result"""
+        try:
+            result = run_write({"path": path, "content": content, "mode": mode})
+            return ActionOutput(content=result, instruct_content=f"Written to: {path}")
+        except Exception as e:
+            logger.error(f"Error in WriteFileAction: {e}")
+            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
+
+
+class EditTextAction(Action):
+    """Action that edits text files"""
+    
+    async def run(self, path: str, action: str, **kwargs) -> ActionOutput:
+        """Edit file and return result"""
+        try:
+            input_obj = {"path": path, "action": action}
+            input_obj.update(kwargs)
+            result = run_edit(input_obj)
+            return ActionOutput(content=result, instruct_content=f"Edited {path} with {action}")
+        except Exception as e:
+            logger.error(f"Error in EditTextAction: {e}")
+            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
+
+
+# ---------- Core Agent ----------
+from metagpt.roles import Role
+
+class V1BasicAgent(Role):
+    """V1 Basic Agent using MetaGPT framework with LLMTalker"""
+    
+    name: str = "V1BasicAgent"
+    profile: str = "Coding Agent"
+    goal: str = "Help with coding tasks using tools and LLMTalker"
+    constraints: str = "Use tools efficiently and provide concise responses"
+    desc: str = "A basic coding agent that uses LLMTalker for LLM communication"
+    
+    def __init__(self, llm_config=None):
+        super().__init__()
+        
+        # Initialize LLMTalker
+        self.llm_talker = LLMTalker()
+        if llm_config:
+            self.llm_talker.set_llm_client(llm_config)
+        
+        # Set up actions
+        self.set_actions([
+            TalkAction(self.llm_talker),
+            BashAction(),
+            ReadFileAction(),
+            WriteFileAction(),
+            EditTextAction()
+        ])
+    
+    async def think(self) -> bool:
+        """Always ready to process messages"""
+        return True
+    
+    async def act(self) -> Message:
+        """Process the latest message using appropriate action"""
+        if not self.rc.news:
+            return Message(content="No message to process", cause_by=self)
+        
+        # Get the latest message
+        latest_msg = self.rc.news[-1]
+        content = latest_msg.content if hasattr(latest_msg, 'content') else str(latest_msg)
+        
+        # Simple routing based on message content
+        content_lower = content.lower()
+        
+        if "bash" in content or any(cmd in content for cmd in ["ls", "pwd", "cat", "echo"]):
+            # Extract command from message
+            if " " in content:
+                parts = content.split(" ", 1)
+                command = parts[1] if len(parts) > 1 else content
+            else:
+                command = content.replace("bash ", "")
+            
+            action = BashAction()
+            response = await action.run(command)
+            
+        elif "read" in content and "file" in content:
+            # Extract file path from message
+            if " " in content:
+                parts = content.split(" ", 2)
+                file_path = parts[1] if len(parts) > 1 else content
+            else:
+                file_path = content.replace("read file ", "")
+            
+            action = ReadFileAction()
+            response = await action.run(file_path)
+            
+        elif "write" in content and "file" in content:
+            # Extract file path and content from message
+            if " " in content:
+                parts = content.split(" ", 2)
+                file_path = parts[1] if len(parts) > 1 else content
+                file_content = parts[2] if len(parts) > 2 else ""
+            else:
+                # Simple format: "write file <path> <content>"
+                remaining = content.replace("write file ", "")
+                if " " in remaining:
+                    file_path, file_content = remaining.split(" ", 1)
+                else:
+                    file_path = remaining
+                    file_content = ""
+            
+            action = WriteFileAction()
+            response = await action.run(file_path, file_content)
+            
+        elif "edit" in content and "file" in content:
+            # Extract edit details from message
+            if " " in content:
+                parts = content.split(" ", 3)
+                file_path = parts[1] if len(parts) > 1 else content
+                edit_action = parts[2] if len(parts) > 2 else "replace"
+                edit_params = {}
+                
+                # Parse additional parameters
+                for i, param in enumerate(parts[3:], 1):
+                    if "=" in param:
+                        key, value = param.split("=", 1)
+                        edit_params[key] = value
+                
+            else:
+                file_path = content.replace("edit file ", "")
+                edit_action = "replace"
+                edit_params = {}
+            
+            action = EditTextAction()
+            response = await action.run(file_path, edit_action, **edit_params)
+            
+        else:
+            # Default to talk action
+            action = TalkAction(self.llm_talker)
+            response = await action.run(content)
+        
+        # Return the response as a message
+        return Message(
+            content=response.content if hasattr(response, 'content') else str(response),
+            cause_by=self.rc.todo,
+            sent_from=self
+        )
 
 
 def main():
     clear_screen()
-    render_banner("Tiny Kode Agent", "custom tools only")
+    render_banner("V1 Basic Agent with LLMTalker", "Using MetaGPT framework with LLMTalker role")
     print(f"{INFO_COLOR}Workspace: {WORKDIR}{RESET}")
     print(f"{INFO_COLOR}Type \"exit\" or \"quit\" to leave.{RESET}\n")
-    history: list = []
-    while True:
-        try:
-            line = input(user_prompt_label())
-        except EOFError:
-            break
-        if not line or line.strip().lower() in {"q", "quit", "exit"}:
-            break
-        print_divider()
-        history.append({"role": "user", "content": [{"type": "text", "text": line}]})
-        try:
-            query(history)
-        except Exception as e:
-            print(f"{ACCENT_COLOR}Error{RESET}: {str(e)}")
+    print(f"{INFO_COLOR}Refer to examples/agent_with_llm_talker.py for usage pattern.{RESET}\n")
+    
+    # Initialize agent
+    agent = V1BasicAgent()
+    
+    # Example interaction loop
+    async def interaction_loop():
+        while True:
+            try:
+                line = input(user_prompt_label())
+            except (EOFError, KeyboardInterrupt):
+                    print("\nGoodbye!")
+                    break
+                if not line or line.strip().lower() in {"q", "quit", "exit"}:
+                    print("Goodbye!")
+                    break
+                print_divider()
+            
+            # Create message and process
+            user_message = Message(content=line, cause_by="user")
+            
+            # Simulate receiving message
+            agent.rc.news = [user_message]
+            
+            # Let agent process the message
+            response = await agent.act()
+            
+            print(f"{PRIMARY_COLOR}Agent Response:{RESET}")
+            print(format_markdown(response.content))
+    
+    # Run the interaction loop
+    asyncio.run(interaction_loop())
 
 
 if __name__ == "__main__":
