@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Bash(python:*)"
+      "Bash(python:*)",
+      "Bash(where:*)",
+      "Bash(timeout 30s bash:*)",
+      "Bash(cat:*)"
     ],
     "deny": [],
     "ask": []

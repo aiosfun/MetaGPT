@@ -1,8 +1,4 @@
 #!/usr/bin/env python3
-"""
-Updated v1_basic_agent.py using MetaGPT framework with LLMTalker role.
-Removes all LLM configuration and uses LLMTalker for all LLM communication.
-"""
 import os
 import sys
 import json
@@ -10,16 +6,51 @@ import re
 import time
 import threading
 import subprocess
-import asyncio
 from pathlib import Path
 from typing import Union, Optional
 
-# Import MetaGPT components
-from metagpt.roles.llm_talker import LLMTalker
-from metagpt.actions import Action, ActionOutput
-from metagpt.schema import Message
-from metagpt.logs import logger
+# Import MetaGPT LLM system
+try:
+    from metagpt.llm import LLM
+    from metagpt.configs.llm_config import LLMConfig
+    from metagpt.context import Context
+    from metagpt.const import USE_CONFIG_TIMEOUT
+except Exception as e:
+    sys.stderr.write("MetaGPT not found. Install with: pip install metagpt\n")
+    raise
 
+# Initialize MetaGPT LLM context and configuration
+# MetaGPT will automatically load configuration from ~/.metagpt/config2.yaml
+try:
+    context = Context()
+    llm = context.llm()
+    llm_config = context.config.llm
+except Exception as e:
+    # Fallback to manual config creation
+    import yaml
+    from metagpt.configs.llm_config import LLMConfig as MetaLLMConfig
+
+    llm_config = MetaLLMConfig()
+    config_paths = [
+        Path.home() / ".metagpt/config2.yaml",
+    ]
+
+    for config_path in config_paths:
+        if config_path.exists():
+            try:
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    data = yaml.safe_load(f)
+                    if 'llm' in data:
+                        llm_data = data['llm']
+                        for key, value in llm_data.items():
+                            if hasattr(llm_config, key):
+                                setattr(llm_config, key, value)
+                        break
+            except Exception as e:
+                sys.stderr.write(f"Warning: Failed to load config from {config_path}: {e}\n")
+                continue
+
+    llm = LLM(llm_config=llm_config)
 
 # ---------- Workspace & Helpers ----------
 WORKDIR = Path.cwd()
@@ -76,7 +107,7 @@ def format_markdown(text: str) -> str:
     formatted = MD_BOLD.sub(bold_repl, text)
     formatted = MD_CODE.sub(code_repl, formatted)
     formatted = MD_HEADING.sub(heading_repl, formatted)
-    formatted = MD_BULLET.sub("• ", formatted)
+    formatted = MD_BULLET.sub("- ", formatted)
     return formatted
 
 
@@ -104,6 +135,96 @@ def pretty_sub_line(text: str) -> None:
     lines = text.splitlines() or [""]
     for line in lines:
         print(f"  ⎿ {format_markdown(line)}")
+
+
+# Minimal spinner for model waits
+class Spinner:
+    def __init__(self, label: str = "Waiting for model") -> None:
+        self.label = label
+        self.frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self.color = "\x1b[38;2;255;229;92m"
+        self._stop = threading.Event()
+        self._thread = None
+
+    def start(self):
+        if not sys.stdout.isatty() or self._thread is not None:
+            return
+        self._stop.clear()
+
+        def run():
+            start_ts = time.time()
+            index = 0
+            while not self._stop.is_set():
+                elapsed = time.time() - start_ts
+                frame = self.frames[index % len(self.frames)]
+                styled = f"{self.color}{frame} {self.label} ({elapsed:.1f}s)\x1b[0m"
+                sys.stdout.write("\r" + styled)
+                sys.stdout.flush()
+                index += 1
+                time.sleep(0.08)
+
+        self._thread = threading.Thread(target=run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        if self._thread is None:
+            return
+        self._stop.set()
+        self._thread.join(timeout=1)
+        self._thread = None
+        try:
+            # clear current line
+            sys.stdout.write("\r\x1b[2K")
+            sys.stdout.flush()
+        except Exception:
+            pass
+
+
+def log_error_debug(tag: str, info) -> None:
+    try:
+        js = json.dumps(info, ensure_ascii=False, indent=2)
+        out = js if len(js) <= 4000 else js[:4000] + "\n...<truncated>"
+        print(f"⚠️  {tag}:")
+        print(out)
+    except Exception:
+        print(f"⚠️  {tag}: (unserializable info)")
+
+
+# ---------- Content normalization helpers ----------
+def normalize_content_list(content):
+    """Simple helper to normalize content for message handling."""
+    try:
+        if isinstance(content, list):
+            return content
+        elif isinstance(content, str):
+            return [{"type": "text", "text": content}]
+        else:
+            return [{"type": "text", "text": str(content)}]
+    except Exception:
+        return []
+
+
+# Validate LLM configuration
+if not llm_config.api_key or llm_config.api_key in ["", "YOUR_API_KEY", "sk-xxx"]:
+    sys.stderr.write("❌ LLM API key not configured. Please set it in ~/.metagpt/config2.yaml\n")
+    sys.exit(1)
+
+# Get the model from config
+AGENT_MODEL = llm_config.model or "claude-3-5-sonnet-20241022"
+
+
+# ---------- System prompt ----------
+SYSTEM = (
+    f"You are a coding agent operating INSIDE the user's repository at {WORKDIR}.\n"
+    "Follow this loop strictly: plan briefly → use TOOLS to act directly on files/shell → report concise results.\n"
+    "Rules:\n"
+    "- Prefer taking actions with tools (read/write/edit/bash) over long prose.\n"
+    "- Keep outputs terse. Use bullet lists / checklists when summarizing.\n"
+    "- Never invent file paths. Ask via reads or list directories first if unsure.\n"
+    "- For edits, apply the smallest change that satisfies the request.\n"
+    "- For bash, avoid destructive or privileged commands; stay inside the workspace.\n"
+    "- After finishing, summarize what changed and how to run or test."
+)
 
 
 # ---------- Tools ----------
@@ -262,248 +383,288 @@ def run_edit(input_obj: dict) -> str:
         raise ValueError(f"unsupported edit_text.action: {action}")
 
 
-# ---------- Actions ----------
-class TalkAction(Action):
-    """Action that uses LLMTalker to communicate with LLM"""
-    
-    def __init__(self, llm_talker: LLMTalker):
-        self.llm_talker = llm_talker
-    
-    async def run(self, message: str, **kwargs) -> ActionOutput:
-        """Send message to LLM and return response"""
-        try:
-            response = await self.llm_talker.talk_to_llm(message)
-            return ActionOutput(content=response, instruct_content=response)
-        except Exception as e:
-            logger.error(f"Error in TalkAction: {e}")
-            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
+def dispatch_tool(tu: dict) -> dict:
+    try:
+        # Support both dict and SDK block objects
+        def gv(obj, key, default=None):
+            return obj.get(key, default) if isinstance(obj, dict) else getattr(obj, key, default)
+
+        name = gv(tu, "name")
+        input_obj = gv(tu, "input", {}) or {}
+        tool_use_id = gv(tu, "id")
+
+        if name == "bash":
+            pretty_tool_line("Bash", (input_obj.get("command") if isinstance(input_obj, dict) else None))
+            out = run_bash(input_obj if isinstance(input_obj, dict) else {})
+            pretty_sub_line(clamp_text(out, 2000) if out else "(No content)")
+            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
+        if name == "read_file":
+            pretty_tool_line("Read", (input_obj.get("path") if isinstance(input_obj, dict) else None))
+            out = run_read(input_obj if isinstance(input_obj, dict) else {})
+            pretty_sub_line(clamp_text(out, 2000))
+            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
+        if name == "write_file":
+            pretty_tool_line("Write", (input_obj.get("path") if isinstance(input_obj, dict) else None))
+            out = run_write(input_obj if isinstance(input_obj, dict) else {})
+            pretty_sub_line(out)
+            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
+        if name == "edit_text":
+            action = input_obj.get("action") if isinstance(input_obj, dict) else None
+            path_v = input_obj.get("path") if isinstance(input_obj, dict) else None
+            pretty_tool_line("Edit", f"{action} {path_v}")
+            out = run_edit(input_obj if isinstance(input_obj, dict) else {})
+            pretty_sub_line(out)
+            return {"type": "tool_result", "tool_use_id": tool_use_id, "content": out}
+        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": f"unknown tool: {name}", "is_error": True}
+    except Exception as e:
+        tool_use_id = tu.get("id") if isinstance(tu, dict) else getattr(tu, "id", None)
+        return {"type": "tool_result", "tool_use_id": tool_use_id, "content": str(e), "is_error": True}
 
 
-class BashAction(Action):
-    """Action that executes bash commands"""
-    
-    async def run(self, command: str, **kwargs) -> ActionOutput:
-        """Execute bash command and return output"""
-        try:
-            timeout_ms = int(kwargs.get("timeout_ms", 30000))
-            result = run_bash({"command": command, "timeout_ms": timeout_ms})
-            return ActionOutput(content=result, instruct_content=f"Executed: {command}")
-        except Exception as e:
-            logger.error(f"Error in BashAction: {e}")
-            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
+# ---------- Core loop ----------
+async def query(messages: list, opts: Optional[dict] = None) -> list:
+    """
+    Query function using MetaGPT's LLM system.
+    Handles both text responses and tool usage.
+    """
+    opts = opts or {}
 
+    # Extract the last user message
+    last_user_msg = None
+    for msg in reversed(messages):
+        if isinstance(msg, dict) and msg.get("role") == "user":
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                # Extract text from content blocks
+                text_parts = []
+                for item in content:
+                    if isinstance(item, dict) and item.get("type") == "text":
+                        text_parts.append(item.get("text", ""))
+                last_user_msg = "\n".join(text_parts)
+            elif isinstance(content, str):
+                last_user_msg = content
+            break
 
-class ReadFileAction(Action):
-    """Action that reads files"""
-    
-    async def run(self, path: str, **kwargs) -> ActionOutput:
-        """Read file and return content"""
-        try:
-            start_line = kwargs.get("start_line")
-            end_line = kwargs.get("end_line")
-            max_chars = kwargs.get("max_chars")
-            
-            input_obj = {"path": path}
-            if start_line is not None:
-                input_obj["start_line"] = start_line
-            if end_line is not None:
-                input_obj["end_line"] = end_line
-            if max_chars is not None:
-                input_obj["max_chars"] = max_chars
-                
-            result = run_read(input_obj)
-            return ActionOutput(content=result, instruct_content=f"Read file: {path}")
-        except Exception as e:
-            logger.error(f"Error in ReadFileAction: {e}")
-            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
+    if not last_user_msg:
+        # If no user message found, just return
+        return messages
 
+    spinner = Spinner()
+    spinner.start()
 
-class WriteFileAction(Action):
-    """Action that writes files"""
-    
-    async def run(self, path: str, content: str, mode: str = "overwrite", **kwargs) -> ActionOutput:
-        """Write file and return result"""
-        try:
-            result = run_write({"path": path, "content": content, "mode": mode})
-            return ActionOutput(content=result, instruct_content=f"Written to: {path}")
-        except Exception as e:
-            logger.error(f"Error in WriteFileAction: {e}")
-            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
+    try:
+        # Use MetaGPT's aask method with system prompt and tools info
+        full_prompt = f"{SYSTEM}\n\nAvailable tools: {json.dumps(tools, indent=2)}\n\nUser: {last_user_msg}"
 
-
-class EditTextAction(Action):
-    """Action that edits text files"""
-    
-    async def run(self, path: str, action: str, **kwargs) -> ActionOutput:
-        """Edit file and return result"""
-        try:
-            input_obj = {"path": path, "action": action}
-            input_obj.update(kwargs)
-            result = run_edit(input_obj)
-            return ActionOutput(content=result, instruct_content=f"Edited {path} with {action}")
-        except Exception as e:
-            logger.error(f"Error in EditTextAction: {e}")
-            return ActionOutput(content=f"Error: {str(e)}", instruct_content="")
-
-
-# ---------- Core Agent ----------
-from metagpt.roles import Role
-
-class V1BasicAgent(Role):
-    """V1 Basic Agent using MetaGPT framework with LLMTalker"""
-    
-    name: str = "V1BasicAgent"
-    profile: str = "Coding Agent"
-    goal: str = "Help with coding tasks using tools and LLMTalker"
-    constraints: str = "Use tools efficiently and provide concise responses"
-    desc: str = "A basic coding agent that uses LLMTalker for LLM communication"
-    
-    def __init__(self, llm_config=None):
-        super().__init__()
-        
-        # Initialize LLMTalker
-        self.llm_talker = LLMTalker()
-        if llm_config:
-            self.llm_talker.set_llm_client(llm_config)
-        
-        # Set up actions
-        self.set_actions([
-            TalkAction(self.llm_talker),
-            BashAction(),
-            ReadFileAction(),
-            WriteFileAction(),
-            EditTextAction()
-        ])
-    
-    async def think(self) -> bool:
-        """Always ready to process messages"""
-        return True
-    
-    async def act(self) -> Message:
-        """Process the latest message using appropriate action"""
-        if not self.rc.news:
-            return Message(content="No message to process", cause_by=self)
-        
-        # Get the latest message
-        latest_msg = self.rc.news[-1]
-        content = latest_msg.content if hasattr(latest_msg, 'content') else str(latest_msg)
-        
-        # Simple routing based on message content
-        content_lower = content.lower()
-        
-        if "bash" in content or any(cmd in content for cmd in ["ls", "pwd", "cat", "echo"]):
-            # Extract command from message
-            if " " in content:
-                parts = content.split(" ", 1)
-                command = parts[1] if len(parts) > 1 else content
-            else:
-                command = content.replace("bash ", "")
-            
-            action = BashAction()
-            response = await action.run(command)
-            
-        elif "read" in content and "file" in content:
-            # Extract file path from message
-            if " " in content:
-                parts = content.split(" ", 2)
-                file_path = parts[1] if len(parts) > 1 else content
-            else:
-                file_path = content.replace("read file ", "")
-            
-            action = ReadFileAction()
-            response = await action.run(file_path)
-            
-        elif "write" in content and "file" in content:
-            # Extract file path and content from message
-            if " " in content:
-                parts = content.split(" ", 2)
-                file_path = parts[1] if len(parts) > 1 else content
-                file_content = parts[2] if len(parts) > 2 else ""
-            else:
-                # Simple format: "write file <path> <content>"
-                remaining = content.replace("write file ", "")
-                if " " in remaining:
-                    file_path, file_content = remaining.split(" ", 1)
-                else:
-                    file_path = remaining
-                    file_content = ""
-            
-            action = WriteFileAction()
-            response = await action.run(file_path, file_content)
-            
-        elif "edit" in content and "file" in content:
-            # Extract edit details from message
-            if " " in content:
-                parts = content.split(" ", 3)
-                file_path = parts[1] if len(parts) > 1 else content
-                edit_action = parts[2] if len(parts) > 2 else "replace"
-                edit_params = {}
-                
-                # Parse additional parameters
-                for i, param in enumerate(parts[3:], 1):
-                    if "=" in param:
-                        key, value = param.split("=", 1)
-                        edit_params[key] = value
-                
-            else:
-                file_path = content.replace("edit file ", "")
-                edit_action = "replace"
-                edit_params = {}
-            
-            action = EditTextAction()
-            response = await action.run(file_path, edit_action, **edit_params)
-            
-        else:
-            # Default to talk action
-            action = TalkAction(self.llm_talker)
-            response = await action.run(content)
-        
-        # Return the response as a message
-        return Message(
-            content=response.content if hasattr(response, 'content') else str(response),
-            cause_by=self.rc.todo,
-            sent_from=self
+        # Ask the agent to respond with tool calls or plain text
+        agent_response = await llm.aask(
+            msg=full_prompt,
+            timeout=USE_CONFIG_TIMEOUT,
+            stream=False
         )
 
+        spinner.stop()
 
-def main():
+        # Try to parse if the response contains tool calls
+        # Look for tool call patterns in markdown code blocks
+        import re
+
+        # Pattern to match tool calls in various formats
+        # Format 1: ```tool_name\nparameter="value"\n```
+        # Format 2: ```tool_name\nparameter: value\n```
+        tool_block_pattern = re.compile(r'```(\w+)\n(.*?)\n```', re.DOTALL)
+        tool_matches = tool_block_pattern.findall(agent_response)
+
+        # Also try to match single-line tool calls like write_file(path="file.txt", content="text")
+        single_line_pattern = re.compile(r'(\w+)_file\(([^)]+)\)', re.DOTALL)
+        single_line_matches = single_line_pattern.findall(agent_response)
+
+        # Also match just write_file calls anywhere in the response
+        direct_pattern = re.compile(r'write_file\(([^)]+)\)', re.DOTALL)
+        direct_matches = direct_pattern.findall(agent_response)
+
+        if tool_matches:
+            for tool_name, tool_content in tool_matches:
+                try:
+                    if tool_name == "write_file" or tool_name == "write":
+                        # Parse write tool content - handle both key="value" and key: value formats
+                        path_match = re.search(r'path\s*[:=]\s*["\']([^"\']+)["\']', tool_content)
+                        content_match = re.search(r'content\s*[:=]\s*["\']([^"\']*)["\']', tool_content)
+
+                        if path_match:
+                            path = path_match.group(1).strip()
+                            content = content_match.group(1).strip() if content_match else ""
+
+                            result = run_write({"path": path, "content": content})
+                            print(f"[Tool result] {result}")
+
+                            # Replace the tool call in the response
+                            tool_block = f"```{tool_name}\n{tool_content}\n```"
+                            agent_response = agent_response.replace(tool_block, f"[OK] Created file: {path}")
+
+                        # Try alternative format without quotes
+                        else:
+                            path_match = re.search(r'path\s*[:=]\s*([^\n\s]+)', tool_content)
+                            content_match = re.search(r'content\s*[:=]\s*(.*)', tool_content, re.DOTALL)
+
+                            if path_match:
+                                path = path_match.group(1).strip()
+                                content = content_match.group(1).strip() if content_match else ""
+
+                                result = run_write({"path": path, "content": content})
+                                print(f"[Tool result] {result}")
+
+                                # Replace the tool call in the response
+                                tool_block = f"```{tool_name}\n{tool_content}\n```"
+                                agent_response = agent_response.replace(tool_block, f"[OK] Created file: {path}")
+
+                    elif tool_name == "bash":
+                        # Parse bash tool content
+                        command_match = re.search(r'command[:\s]+([^\n]+)', tool_content)
+                        if command_match:
+                            command = command_match.group(1).strip().strip('"\'')
+                            result = run_bash({"command": command})
+                            print(f"[Tool result] {result}")
+
+                            # Replace the tool call in the response
+                            tool_block = f"```{tool_name}\n{tool_content}\n```"
+                            agent_response = agent_response.replace(tool_block, f"[OK] Executed: {command}\nResult: {result}")
+
+                        # Check if the bash content contains tool calls like write_file(path="file.txt", content="text")
+                        write_match = re.search(r'write_file\(([^)]+)\)', tool_content)
+                        if write_match:
+                            params_str = write_match.group(1)
+                            path_match = re.search(r'path\s*=\s*["\']([^"\']+)["\']', params_str)
+                            content_match = re.search(r'content\s*=\s*["\']([^"\']*)["\']', params_str)
+
+                            if path_match:
+                                path = path_match.group(1).strip()
+                                content = content_match.group(1) if content_match else ""
+
+                                result = run_write({"path": path, "content": content})
+                                print(f"[Tool result] {result}")
+
+                                # Replace the tool call in the response
+                                tool_block = f"```{tool_name}\n{tool_content}\n```"
+                                agent_response = agent_response.replace(tool_block, f"[OK] Created file: {path}")
+
+                    elif tool_name == "read_file" or tool_name == "read":
+                        # Parse read tool content
+                        path_match = re.search(r'path[:\s]+([^\n]+)', tool_content)
+                        if path_match:
+                            path = path_match.group(1).strip().strip('"\'')
+                            result = run_read({"path": path})
+                            print(f"[Tool result] {result}")
+
+                            # Replace the tool call in the response
+                            tool_block = f"```{tool_name}\n{tool_content}\n```"
+                            agent_response = agent_response.replace(tool_block, f"✅ Read file: {path}\nContent: {result}")
+
+                except Exception as e:
+                    print(f"Error executing tool {tool_name}: {e}")
+
+        # Also try JSON format for tool calls
+        json_pattern = re.compile(r'\{[^}]*"tool"[^}]*\}', re.DOTALL)
+        json_tools = json_pattern.findall(agent_response)
+
+        for tool_json in json_tools:
+            try:
+                tool_data = json.loads(tool_json)
+                tool_name = tool_data.get("tool")
+                if tool_name == "bash":
+                    command = tool_data.get("command")
+                    if command:
+                        result = run_bash({"command": command})
+                        print(f"[Tool result] {result}")
+                        agent_response = agent_response.replace(tool_json, f"✅ Executed: {command}\nResult: {result}")
+                elif tool_name == "write":
+                    path = tool_data.get("path")
+                    content = tool_data.get("content", "")
+                    if path:
+                        result = run_write({"path": path, "content": content})
+                        print(f"[Tool result] {result}")
+                        agent_response = agent_response.replace(tool_json, f"✅ Created file: {path}")
+            except Exception as e:
+                print(f"Error executing JSON tool: {e}")
+
+        # Handle single-line tool calls like write_file(path="file.txt", content="text")
+        if single_line_matches:
+            for tool_name, params_str in single_line_matches:
+                try:
+                    if tool_name == "write":
+                        # Parse parameters from write_file(path="file.txt", content="text")
+                        path_match = re.search(r'path\s*=\s*["\']([^"\']+)["\']', params_str)
+                        content_match = re.search(r'content\s*=\s*["\']([^"\']*)["\']', params_str)
+
+                        if path_match:
+                            path = path_match.group(1).strip()
+                            content = content_match.group(1) if content_match else ""
+
+                            result = run_write({"path": path, "content": content})
+                            print(f"[Tool result] {result}")
+
+                            # Replace the tool call in the response
+                            tool_call_str = f"{tool_name}_file({params_str})"
+                            agent_response = agent_response.replace(tool_call_str, f"[OK] Created file: {path}")
+
+                except Exception as e:
+                    print(f"Error executing single-line tool {tool_name}: {e}")
+
+        # Handle direct write_file matches
+        if direct_matches:
+            for params_str in direct_matches:
+                try:
+                    # Parse parameters from write_file(path="file.txt", content="text")
+                    path_match = re.search(r'path\s*=\s*["\']([^"\']+)["\']', params_str)
+                    content_match = re.search(r'content\s*=\s*["\']([^"\']*)["\']', params_str)
+
+                    if path_match:
+                        path = path_match.group(1).strip()
+                        content = content_match.group(1) if content_match else ""
+
+                        result = run_write({"path": path, "content": content})
+                        print(f"[Tool result] {result}")
+
+                        # Replace the tool call in the response
+                        tool_call_str = f"write_file({params_str})"
+                        agent_response = agent_response.replace(tool_call_str, f"[OK] Created file: {path}")
+
+                except Exception as e:
+                    print(f"Error executing direct tool call: {e}")
+
+        # Display the formatted response
+        sys.stdout.write(format_markdown(agent_response or "") + "\n")
+
+        messages.append({"role": "assistant", "content": [{"type": "text", "text": agent_response}]})
+        return messages
+
+    except Exception as e:
+        spinner.stop()
+        sys.stderr.write(f"Error during LLM query: {e}\n")
+        return messages
+
+
+async def main():
     clear_screen()
-    render_banner("V1 Basic Agent with LLMTalker", "Using MetaGPT framework with LLMTalker role")
+    render_banner("Tiny Kode Agent", "custom tools only")
     print(f"{INFO_COLOR}Workspace: {WORKDIR}{RESET}")
     print(f"{INFO_COLOR}Type \"exit\" or \"quit\" to leave.{RESET}\n")
-    print(f"{INFO_COLOR}Refer to examples/agent_with_llm_talker.py for usage pattern.{RESET}\n")
-    
-    # Initialize agent
-    agent = V1BasicAgent()
-    
-    # Example interaction loop
-    async def interaction_loop():
-        while True:
-            try:
-                line = input(user_prompt_label())
-            except (EOFError, KeyboardInterrupt):
-                    print("\nGoodbye!")
-                    break
-                if not line or line.strip().lower() in {"q", "quit", "exit"}:
-                    print("Goodbye!")
-                    break
-                print_divider()
-            
-            # Create message and process
-            user_message = Message(content=line, cause_by="user")
-            
-            # Simulate receiving message
-            agent.rc.news = [user_message]
-            
-            # Let agent process the message
-            response = await agent.act()
-            
-            print(f"{PRIMARY_COLOR}Agent Response:{RESET}")
-            print(format_markdown(response.content))
-    
-    # Run the interaction loop
-    asyncio.run(interaction_loop())
+    history: list = []
+    while True:
+        try:
+            line = input(user_prompt_label())
+        except EOFError:
+            break
+        if not line or line.strip().lower() in {"q", "quit", "exit"}:
+            break
+        print_divider()
+        history.append({"role": "user", "content": [{"type": "text", "text": line}]})
+        try:
+            history = await query(history)
+        except Exception as e:
+            print(f"{ACCENT_COLOR}Error{RESET}: {str(e)}")
 
 
 if __name__ == "__main__":
-    main()
+    import asyncio
+    asyncio.run(main())
