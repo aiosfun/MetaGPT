@@ -472,8 +472,16 @@ async def query(messages: list, opts: Optional[dict] = None) -> list:
         # Pattern to match tool calls in various formats
         # Format 1: ```tool_name\nparameter="value"\n```
         # Format 2: ```tool_name\nparameter: value\n```
+        # Format 3: tool_name\nparameter: value\nparameter2: value2
         tool_block_pattern = re.compile(r'```(\w+)\n(.*?)\n```', re.DOTALL)
         tool_matches = tool_block_pattern.findall(agent_response)
+
+        # Pattern to match YAML-style tool calls like:
+        # write_file
+        # path: file.txt
+        # content: text
+        yaml_style_pattern = re.compile(r'(\w+)\n((?:\s*\w+\s*:\s*[^\n]+\n?)*)', re.DOTALL)
+        yaml_matches = yaml_style_pattern.findall(agent_response)
 
         # Also try to match single-line tool calls like write_file(path="file.txt", content="text")
         single_line_pattern = re.compile(r'(\w+)_file\(([^)]+)\)', re.DOTALL)
@@ -631,6 +639,33 @@ async def query(messages: list, opts: Optional[dict] = None) -> list:
 
                 except Exception as e:
                     print(f"Error executing direct tool call: {e}")
+
+        # Handle YAML-style tool matches
+        if yaml_matches:
+            for tool_name, yaml_content in yaml_matches:
+                try:
+                    if tool_name == "write_file":
+                        # Parse YAML-style parameters
+                        path_match = re.search(r'path\s*:\s*([^\n]+)', yaml_content)
+                        content_match = re.search(r'content\s*:\s*([^\n]*)', yaml_content)
+
+                        if path_match:
+                            path = path_match.group(1).strip()
+                            content = content_match.group(1).strip() if content_match else ""
+
+                            # Remove potential quotes
+                            path = path.strip('"\'')
+                            content = content.strip('"\'')
+
+                            result = run_write({"path": path, "content": content})
+                            print(f"[Tool result] {result}")
+
+                            # Replace the tool call in the response
+                            tool_block = f"{tool_name}\n{yaml_content}"
+                            agent_response = agent_response.replace(tool_block, f"[OK] Created file: {path}")
+
+                except Exception as e:
+                    print(f"Error executing YAML-style tool {tool_name}: {e}")
 
         # Display the formatted response
         sys.stdout.write(format_markdown(agent_response or "") + "\n")
